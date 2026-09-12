@@ -1,0 +1,11 @@
+.git
+.gitignore
+node_modules
+dist
+coverage
+.vitest
+*.log
+.DS_Store
+.env
+.env.*
+kimi-swarm-runtime
