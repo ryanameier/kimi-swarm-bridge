@@ -23019,7 +23019,7 @@ async function runToolHandler(handler) {
     };
   }
 }
-async function main() {
+function createMcpServer() {
   const config2 = loadBridgeConfig();
   const http = new KimiHttpClient(config2.serverUrl, fetch, config2.requestTimeoutMs, config2.serverToken);
   const preflight = new KimiPreflight(config2, http);
@@ -23145,6 +23145,10 @@ async function main() {
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input))
   );
+  return server;
+}
+async function main() {
+  const server = createMcpServer();
   await server.connect(new StdioServerTransport());
 }
 function isDirectExecution(metaUrl, argvPath = process.argv[1]) {

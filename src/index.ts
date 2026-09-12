@@ -75,7 +75,7 @@ export async function runToolHandler(handler: () => Promise<unknown>): Promise<{
   }
 }
 
-export async function main(): Promise<void> {
+export function createMcpServer(): McpServer {
   const config = loadBridgeConfig();
   const http = new KimiHttpClient(config.serverUrl, fetch, config.requestTimeoutMs, config.serverToken);
   const preflight = new KimiPreflight(config, http);
@@ -213,6 +213,11 @@ export async function main(): Promise<void> {
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input)),
   );
 
+  return server;
+}
+
+export async function main(): Promise<void> {
+  const server = createMcpServer();
   await server.connect(new StdioServerTransport());
 }
 

@@ -26,6 +26,9 @@ ENV KIMI_THINKING=high
 ENV KIMI_PERMISSION_MODE=auto
 ENV KIMI_AUTO_START=false
 ENV KIMI_BRIDGE_STATE_DIR=/data/state
+ENV KIMI_MCP_TRANSPORT=http
+ENV KIMI_MCP_HTTP_HOST=0.0.0.0
+ENV KIMI_MCP_HTTP_PORT=3000
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -60,6 +63,8 @@ RUN mkdir -p \
     && git commit -m "Initialize container workspace"
 
 VOLUME ["/data"]
+
+EXPOSE 3000
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "/app/supervisor.mjs"]

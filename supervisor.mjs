@@ -36,6 +36,12 @@ Object.assign(process.env, {
     process.env.KIMI_PERMISSION_MODE || "auto",
   KIMI_BRIDGE_STATE_DIR:
     process.env.KIMI_BRIDGE_STATE_DIR || "/data/state",
+  KIMI_MCP_TRANSPORT:
+    process.env.KIMI_MCP_TRANSPORT || "http",
+  KIMI_MCP_HTTP_HOST:
+    process.env.KIMI_MCP_HTTP_HOST || "0.0.0.0",
+  KIMI_MCP_HTTP_PORT:
+    process.env.KIMI_MCP_HTTP_PORT || process.env.PORT || "3000",
 });
 
 let shuttingDown = false;
@@ -145,13 +151,29 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 try {
   await waitForKimi();
 
+  const transport = process.env.KIMI_MCP_TRANSPORT;
+
+  if (transport !== "stdio" && transport !== "http") {
+    throw new Error(
+      `Invalid KIMI_MCP_TRANSPORT: ${transport}. Expected stdio or http.`,
+    );
+  }
+
+  const bridgeEntry =
+    transport === "http"
+      ? "/app/dist/http-entry.js"
+      : "/app/dist/index.js";
+
   console.error(
-    `Kimi ready on ${kimiBaseUrl}; starting MCP bridge over stdio`,
+    `Kimi ready on ${kimiBaseUrl}; starting MCP bridge over ${transport}`,
   );
 
-  bridge = spawn("node", ["/app/dist/index.js"], {
+  bridge = spawn("node", [bridgeEntry], {
     env: process.env,
-    stdio: ["inherit", "inherit", "inherit"],
+    stdio:
+      transport === "stdio"
+        ? ["inherit", "inherit", "inherit"]
+        : ["ignore", "inherit", "inherit"],
   });
 
   bridge.on("exit", (code, signal) => {
