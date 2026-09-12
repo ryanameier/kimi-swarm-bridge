@@ -35,10 +35,25 @@ describe('KimiClient', () => {
 
   it('submits prompts with required runtime fields', async () => {
     const http: HttpPort = {
-      post: vi.fn(async () => ({ prompt_id: 'p1', user_message_id: 'm1', status: 'running' })) as HttpPort['post'],
-      get: vi.fn(),
+      post: vi.fn(async (path: string) => {
+        if (path === '/sessions/s1/profile') {
+          return {};
+        }
+
+        return {
+          prompt_id: 'p1',
+          user_message_id: 'm1',
+          status: 'running',
+        };
+      }) as HttpPort['post'],
+
+      get: vi.fn(async () => ({
+        swarm_mode: true,
+      })) as HttpPort['get'],
     };
+
     const client = new KimiClient(http);
+
     await client.submitPrompt('s1', {
       content: 'hello',
       model: 'kimi-k2',
@@ -47,14 +62,54 @@ describe('KimiClient', () => {
       planMode: false,
       swarmMode: true,
     });
-    expect(http.post).toHaveBeenCalledWith('/sessions/s1/prompts', {
+
+    expect(http.post).toHaveBeenNthCalledWith(1, '/sessions/s1/profile', {
+      agent_config: {
+        plan_mode: false,
+        swarm_mode: true,
+      },
+    });
+
+    expect(http.get).toHaveBeenCalledWith('/sessions/s1/status');
+
+    expect(http.post).toHaveBeenNthCalledWith(2, '/sessions/s1/prompts', {
       content: [{ type: 'text', text: 'hello' }],
       model: 'kimi-k2',
       thinking: 'high',
       permission_mode: 'auto',
-      plan_mode: false,
-      swarm_mode: true,
     });
+  });
+
+  it('refuses to submit the prompt when requested swarm mode is not applied', async () => {
+    const http: HttpPort = {
+      post: vi.fn(async () => ({})) as HttpPort['post'],
+      get: vi.fn(async () => ({
+        swarm_mode: false,
+      })) as HttpPort['get'],
+    };
+
+    const client = new KimiClient(http);
+
+    await expect(
+      client.submitPrompt('s1', {
+        content: 'run a swarm',
+        model: 'kimi-k2',
+        thinking: 'high',
+        permissionMode: 'auto',
+        planMode: false,
+        swarmMode: true,
+      }),
+    ).rejects.toThrow('Kimi did not apply requested swarm mode=true');
+
+    expect(http.post).toHaveBeenCalledTimes(1);
+    expect(http.post).toHaveBeenCalledWith('/sessions/s1/profile', {
+      agent_config: {
+        plan_mode: false,
+        swarm_mode: true,
+      },
+    });
+
+    expect(http.get).toHaveBeenCalledWith('/sessions/s1/status');
   });
 
   it('aborts a session with the real Kimi action suffix route', async () => {

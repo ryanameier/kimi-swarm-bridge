@@ -79,14 +79,32 @@ export class KimiClient {
     return this.http.get('/meta');
   }
 
-  submitPrompt(sessionId: string, input: SubmitPromptInput): Promise<PromptSubmitResult> {
-    return this.http.post(`/sessions/${encodeURIComponent(sessionId)}/prompts`, {
+  async submitPrompt(sessionId: string, input: SubmitPromptInput): Promise<PromptSubmitResult> {
+    const sessionPath = `/sessions/${encodeURIComponent(sessionId)}`;
+
+    // Kimi Code 0.42 accepts plan_mode/swarm_mode in the prompt schema but does
+    // not apply them there. Apply session mode state through /profile first.
+    await this.http.post(`${sessionPath}/profile`, {
+      agent_config: {
+        plan_mode: input.planMode,
+        ...(input.swarmMode === undefined ? {} : { swarm_mode: input.swarmMode }),
+      },
+    });
+
+    // Swarm activation is part of the product contract, so fail closed if the
+    // server did not actually apply the requested state.
+    if (input.swarmMode !== undefined) {
+      const status = await this.getStatus(sessionId);
+      if (status.swarm_mode !== input.swarmMode) {
+        throw new Error(`Kimi did not apply requested swarm mode=${String(input.swarmMode)}`);
+      }
+    }
+
+    return this.http.post(`${sessionPath}/prompts`, {
       content: [{ type: 'text', text: input.content }],
       model: input.model,
       thinking: input.thinking,
       permission_mode: input.permissionMode,
-      plan_mode: input.planMode,
-      ...(input.swarmMode === undefined ? {} : { swarm_mode: input.swarmMode }),
     });
   }
 
