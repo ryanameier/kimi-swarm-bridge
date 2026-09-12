@@ -41,7 +41,7 @@ Object.assign(process.env, {
   KIMI_MCP_HTTP_HOST:
     process.env.KIMI_MCP_HTTP_HOST || "0.0.0.0",
   KIMI_MCP_HTTP_PORT:
-    process.env.KIMI_MCP_HTTP_PORT || process.env.PORT || "3000",
+    process.env.PORT || process.env.KIMI_MCP_HTTP_PORT || "3000",
 });
 
 let shuttingDown = false;

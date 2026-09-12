@@ -195,7 +195,7 @@ async function handleMcpRequest(
 
 const httpServer = createServer(async (req, res) => {
   try {
-    if (req.url === '/healthz') {
+    if (req.url === '/healthz' || req.url === '/ping') {
       sendJson(res, 200, {
         status: 'ok',
         transport: 'streamable-http',

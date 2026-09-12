@@ -126,6 +126,13 @@ describe('HTTP MCP entrypoint', () => {
 
     await waitForHealth(`${baseUrl}/healthz`, () => stderr);
 
+    const ping = await fetch(`${baseUrl}/ping`);
+    expect(ping.status).toBe(200);
+    await expect(ping.json()).resolves.toEqual({
+      status: 'ok',
+      transport: 'streamable-http',
+    });
+
     const unauthorized = await fetch(mcpUrl, {
       method: 'POST',
       headers: {
