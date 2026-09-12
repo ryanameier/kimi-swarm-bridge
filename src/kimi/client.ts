@@ -86,6 +86,8 @@ export class KimiClient {
     // not apply them there. Apply session mode state through /profile first.
     await this.http.post(`${sessionPath}/profile`, {
       agent_config: {
+        model: input.model,
+        thinking: input.thinking,
         plan_mode: input.planMode,
         ...(input.swarmMode === undefined ? {} : { swarm_mode: input.swarmMode }),
       },
@@ -102,8 +104,6 @@ export class KimiClient {
 
     return this.http.post(`${sessionPath}/prompts`, {
       content: [{ type: 'text', text: input.content }],
-      model: input.model,
-      thinking: input.thinking,
       permission_mode: input.permissionMode,
     });
   }

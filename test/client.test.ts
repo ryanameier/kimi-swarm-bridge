@@ -65,6 +65,8 @@ describe('KimiClient', () => {
 
     expect(http.post).toHaveBeenNthCalledWith(1, '/sessions/s1/profile', {
       agent_config: {
+        model: 'kimi-k2',
+        thinking: 'high',
         plan_mode: false,
         swarm_mode: true,
       },
@@ -74,8 +76,6 @@ describe('KimiClient', () => {
 
     expect(http.post).toHaveBeenNthCalledWith(2, '/sessions/s1/prompts', {
       content: [{ type: 'text', text: 'hello' }],
-      model: 'kimi-k2',
-      thinking: 'high',
       permission_mode: 'auto',
     });
   });
@@ -104,6 +104,8 @@ describe('KimiClient', () => {
     expect(http.post).toHaveBeenCalledTimes(1);
     expect(http.post).toHaveBeenCalledWith('/sessions/s1/profile', {
       agent_config: {
+        model: 'kimi-k2',
+        thinking: 'high',
         plan_mode: false,
         swarm_mode: true,
       },

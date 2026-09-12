@@ -48,6 +48,12 @@ export async function startFakeKimiServer(): Promise<FakeKimiServer> {
   };
 
   let currentSession = { ...baseSession };
+  let profileState = {
+    model: '',
+    thinking: 'high',
+    plan_mode: false,
+    swarm_mode: false,
+  };
 
   const server = createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json');
@@ -63,6 +69,26 @@ export async function startFakeKimiServer(): Promise<FakeKimiServer> {
       res.end(envelope(currentSession));
       return;
     }
+    if (req.method === 'POST' && req.url === '/api/v1/sessions/s1/profile') {
+      const body = JSON.parse(await readBody(req));
+      const agentConfig = body.agent_config ?? {};
+
+      profileState = {
+        model: agentConfig.model ?? profileState.model,
+        thinking: agentConfig.thinking ?? profileState.thinking,
+        plan_mode: agentConfig.plan_mode ?? profileState.plan_mode,
+        swarm_mode: agentConfig.swarm_mode ?? profileState.swarm_mode,
+      };
+
+      currentSession = {
+        ...currentSession,
+        agent_config: { model: profileState.model },
+      };
+
+      res.end(envelope(currentSession));
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/api/v1/sessions/s1/prompts') {
       res.end(envelope({ prompt_id: 'p1', user_message_id: 'm1', status: 'running' }));
       return;
@@ -82,11 +108,11 @@ export async function startFakeKimiServer(): Promise<FakeKimiServer> {
     if (req.method === 'GET' && req.url === '/api/v1/sessions/s1/status') {
       res.end(envelope({
         busy: false,
-        model: 'kimi-k2',
-        thinking_level: 'high',
+        model: profileState.model || 'kimi-k2',
+        thinking_level: profileState.thinking,
         permission: 'auto',
-        plan_mode: false,
-        swarm_mode: false,
+        plan_mode: profileState.plan_mode,
+        swarm_mode: profileState.swarm_mode,
         context_tokens: 0,
         max_context_tokens: 262144,
         context_usage: 0,

@@ -21797,6 +21797,8 @@ var KimiClient = class {
     const sessionPath = `/sessions/${encodeURIComponent(sessionId)}`;
     await this.http.post(`${sessionPath}/profile`, {
       agent_config: {
+        model: input.model,
+        thinking: input.thinking,
         plan_mode: input.planMode,
         ...input.swarmMode === void 0 ? {} : { swarm_mode: input.swarmMode }
       }
@@ -21809,8 +21811,6 @@ var KimiClient = class {
     }
     return this.http.post(`${sessionPath}/prompts`, {
       content: [{ type: "text", text: input.content }],
-      model: input.model,
-      thinking: input.thinking,
       permission_mode: input.permissionMode
     });
   }
