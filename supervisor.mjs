@@ -1,31 +1,17 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import process from "node:process";
+import { applyAiandRuntimePolicy } from "./dist/runtime-policy.js";
 
 const kimiCodeHome = process.env.KIMI_CODE_HOME || "/data/kimi-code";
 const kimiHost = "127.0.0.1";
 const kimiPort = process.env.KIMI_SERVER_PORT || "58627";
 const kimiBaseUrl = `http://${kimiHost}:${kimiPort}`;
 
-if (!process.env.KIMI_MODEL_API_KEY && process.env.AIAND_API_KEY) {
-  process.env.KIMI_MODEL_API_KEY = process.env.AIAND_API_KEY;
-}
-
-if (!process.env.KIMI_MODEL_API_KEY) {
-  console.error(
-    "Missing ai& credential: set AIAND_API_KEY or KIMI_MODEL_API_KEY at runtime.",
-  );
-  process.exit(1);
-}
+applyAiandRuntimePolicy(process.env);
 
 Object.assign(process.env, {
   KIMI_CODE_HOME: kimiCodeHome,
-  KIMI_MODEL_NAME:
-    process.env.KIMI_MODEL_NAME || "moonshotai/kimi-k3",
-  KIMI_MODEL_PROVIDER_TYPE:
-    process.env.KIMI_MODEL_PROVIDER_TYPE || "openai",
-  KIMI_MODEL_BASE_URL:
-    process.env.KIMI_MODEL_BASE_URL || "https://api.aiand.com/v1",
   KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY:
     process.env.KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY || "4",
 
