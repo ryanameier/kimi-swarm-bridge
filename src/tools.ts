@@ -11,6 +11,7 @@ import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } from './git.js';
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
+import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 
 export interface FileLister {
   listFiles(baseDir: string, relativeDir: string): Promise<string[]>;
@@ -127,6 +128,8 @@ export interface DelegateAndWaitResult {
   dedupe?: DelegateAndWaitDedupeResult;
   baselineStored?: boolean;
   baselineStoreError?: string;
+  swarmModeActivated?: boolean;
+  swarmEvidence?: SwarmEvidence;
 }
 
 export interface DelegateAndWaitDedupeResult {
@@ -178,7 +181,7 @@ export interface ReviewPackageResult {
 }
 
 export interface ToolHandlers {
-  kimi_delegate_task: (input: DelegateTaskInput) => Promise<{ sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string }>;
+  kimi_delegate_task: (input: DelegateTaskInput) => Promise<{ sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean }>;
   kimi_delegate_and_wait: (input: DelegateAndWaitInput) => Promise<DelegateAndWaitResult>;
   kimi_wait_until_idle: (input: WaitUntilIdleInput) => Promise<WaitUntilIdleResult>;
   kimi_get_handoff: (input: GetHandoffInput) => Promise<KimiHandoff>;
@@ -572,12 +575,22 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
   }
 
   async function buildDelegateAndWaitResult(
-    delegated: { sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string },
+    delegated: { sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean },
     wait: WaitUntilIdleResult,
   ): Promise<DelegateAndWaitResult> {
     const baselineFields = {
       ...(delegated.baselineStored !== undefined ? { baselineStored: delegated.baselineStored } : {}),
       ...(delegated.baselineStoreError !== undefined ? { baselineStoreError: delegated.baselineStoreError } : {}),
+    };
+    const swarmEvidence = delegated.swarmModeActivated === true
+      ? await readSwarmEvidence({
+          kimiCodeHome: deps.config.kimiCodeHome,
+          sessionId: delegated.sessionId,
+        })
+      : undefined;
+    const swarmFields = {
+      ...(delegated.swarmModeActivated !== undefined ? { swarmModeActivated: delegated.swarmModeActivated } : {}),
+      ...(swarmEvidence !== undefined ? { swarmEvidence } : {}),
     };
     if (wait.status !== 'idle') {
       const result: DelegateAndWaitResult = {
@@ -587,6 +600,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         webUrl: delegated.webUrl,
         wait,
         ...baselineFields,
+        ...swarmFields,
       };
       if (wait.status === 'timeout' || wait.status === 'aborted' || wait.status === 'failed') {
         result.diagnostics = await buildDelegateAndWaitDiagnostics(
@@ -611,6 +625,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       changedFiles: handoff.changedFiles,
       reviewPackage,
       ...baselineFields,
+      ...swarmFields,
     };
   }
 
@@ -701,6 +716,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         webUrl: buildWebUrl(deps.config.serverUrl, session.id),
         ...(baselineStored !== undefined ? { baselineStored } : {}),
         ...(baselineStoreError !== undefined ? { baselineStoreError } : {}),
+        ...(input.swarmMode !== undefined ? { swarmModeActivated: input.swarmMode } : {}),
       };
     },
 

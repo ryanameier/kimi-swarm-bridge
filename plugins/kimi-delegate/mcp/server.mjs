@@ -22036,8 +22036,161 @@ async function expandGitStatusEntries(input) {
 }
 
 // src/tools.ts
-import { readdir, realpath } from "node:fs/promises";
+import { readdir as readdir2, realpath } from "node:fs/promises";
 import path2 from "node:path";
+
+// src/swarm-evidence.ts
+import { readFile as readFile2, readdir } from "node:fs/promises";
+import { homedir as homedir2 } from "node:os";
+import { join as join3 } from "node:path";
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function unique(values) {
+  return [...new Set(values.filter((value) => value !== void 0))].sort();
+}
+async function parseJsonLines(filePath) {
+  const text = await readFile2(filePath, "utf8");
+  const records = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (isRecord(parsed)) records.push(parsed);
+    } catch {
+    }
+  }
+  return records;
+}
+function summarizeInference(records, fallbackAgentId) {
+  const requests = records.filter((record2) => record2.type === "llm.request");
+  const strings = (key) => unique(requests.map(
+    (request) => typeof request[key] === "string" ? request[key] : void 0
+  ));
+  const agentId = requests.find((request) => typeof request.agentId === "string")?.agentId;
+  return {
+    agentId: typeof agentId === "string" ? agentId : fallbackAgentId,
+    requestCount: requests.length,
+    providers: strings("provider"),
+    models: strings("model"),
+    modelAliases: strings("modelAlias"),
+    thinkingEfforts: strings("thinkingEffort")
+  };
+}
+function loopEvent(record2) {
+  if (record2.type !== "context.append_loop_event" || !isRecord(record2.event)) return void 0;
+  return record2.event;
+}
+function attr(tag, name) {
+  const match = new RegExp(`\\b${name}="([^"]+)"`).exec(tag);
+  return match?.[1];
+}
+function workerResultsFromOutput(output) {
+  const workers = /* @__PURE__ */ new Map();
+  for (const match of output.matchAll(/<subagent\b[^>]*>/g)) {
+    const tag = match[0];
+    const agentId = attr(tag, "agent_id");
+    if (agentId) workers.set(agentId, attr(tag, "outcome"));
+  }
+  return workers;
+}
+async function findAgentsDir(kimiCodeHome, sessionId) {
+  if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) return void 0;
+  const sessionsRoot = join3(kimiCodeHome, "sessions");
+  const workspaceEntries = await readdir(sessionsRoot, { withFileTypes: true }).catch(() => void 0);
+  if (!workspaceEntries) return void 0;
+  for (const workspace of workspaceEntries) {
+    if (!workspace.isDirectory()) continue;
+    const agentsDir = join3(sessionsRoot, workspace.name, sessionId, "agents");
+    const exists = await readdir(agentsDir).then(() => true, () => false);
+    if (exists) return agentsDir;
+  }
+  return void 0;
+}
+async function readSwarmEvidence(input) {
+  const kimiCodeHome = input.kimiCodeHome ?? join3(homedir2(), ".kimi-code");
+  const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
+  if (!agentsDir) {
+    return {
+      available: false,
+      source: "kimi_wire_v1",
+      nativeAgentSwarmObserved: false,
+      agentSwarmCallCount: 0,
+      requestedWorkerCount: 0,
+      workerCount: 0,
+      completedWorkerCount: 0,
+      workers: [],
+      unavailableReason: "session_wire_not_found"
+    };
+  }
+  let mainRecords;
+  try {
+    mainRecords = await parseJsonLines(join3(agentsDir, "main", "wire.jsonl"));
+  } catch {
+    return {
+      available: false,
+      source: "kimi_wire_v1",
+      nativeAgentSwarmObserved: false,
+      agentSwarmCallCount: 0,
+      requestedWorkerCount: 0,
+      workerCount: 0,
+      completedWorkerCount: 0,
+      workers: [],
+      unavailableReason: "wire_read_failed"
+    };
+  }
+  const agentSwarmCalls = /* @__PURE__ */ new Map();
+  for (const record2 of mainRecords) {
+    const event = loopEvent(record2);
+    if (!event || event.type !== "tool.call" || event.name !== "AgentSwarm") continue;
+    if (typeof event.toolCallId === "string") agentSwarmCalls.set(event.toolCallId, event);
+  }
+  let requestedWorkerCount = 0;
+  for (const call of agentSwarmCalls.values()) {
+    if (!isRecord(call.args)) continue;
+    const items = call.args.items;
+    const resumes = call.args.resume_agent_ids;
+    requestedWorkerCount += Array.isArray(items) ? items.length : 0;
+    requestedWorkerCount += isRecord(resumes) ? Object.keys(resumes).length : 0;
+  }
+  const workerOutcomes = /* @__PURE__ */ new Map();
+  for (const record2 of mainRecords) {
+    const event = loopEvent(record2);
+    if (!event || event.type !== "tool.result") continue;
+    if (typeof event.toolCallId !== "string" || !agentSwarmCalls.has(event.toolCallId)) continue;
+    if (!isRecord(event.result) || typeof event.result.output !== "string") continue;
+    for (const [agentId, outcome] of workerResultsFromOutput(event.result.output)) {
+      workerOutcomes.set(agentId, outcome);
+    }
+  }
+  const workers = [];
+  for (const agentId of [...workerOutcomes.keys()].sort()) {
+    let records = [];
+    try {
+      records = await parseJsonLines(join3(agentsDir, agentId, "wire.jsonl"));
+    } catch {
+    }
+    const outcome = workerOutcomes.get(agentId);
+    workers.push({
+      ...summarizeInference(records, agentId),
+      ...outcome !== void 0 ? { outcome } : {}
+    });
+  }
+  return {
+    available: true,
+    source: "kimi_wire_v1",
+    nativeAgentSwarmObserved: agentSwarmCalls.size > 0,
+    agentSwarmCallCount: agentSwarmCalls.size,
+    requestedWorkerCount,
+    workerCount: workers.length,
+    completedWorkerCount: workers.filter((worker) => worker.outcome === "completed").length,
+    coordinator: summarizeInference(mainRecords, "main"),
+    workers
+  };
+}
+
+// src/tools.ts
 function withPreflight(preflight, fn) {
   return async (...args) => {
     await preflight.ensureReady();
@@ -22294,7 +22447,7 @@ async function buildDelegateAndWaitDiagnostics(kimi, sessionId, status, webUrl, 
 var defaultFileLister = {
   async listFiles(baseDir, relativeDir) {
     const fullDir = path2.join(baseDir, relativeDir);
-    const entries = await readdir(fullDir, { withFileTypes: true });
+    const entries = await readdir2(fullDir, { withFileTypes: true });
     const files = [];
     for (const entry of entries) {
       const childRelativePath = path2.posix.join(relativeDir, entry.name);
@@ -22354,6 +22507,14 @@ function createToolHandlers(deps) {
       ...delegated.baselineStored !== void 0 ? { baselineStored: delegated.baselineStored } : {},
       ...delegated.baselineStoreError !== void 0 ? { baselineStoreError: delegated.baselineStoreError } : {}
     };
+    const swarmEvidence = delegated.swarmModeActivated === true ? await readSwarmEvidence({
+      kimiCodeHome: deps.config.kimiCodeHome,
+      sessionId: delegated.sessionId
+    }) : void 0;
+    const swarmFields = {
+      ...delegated.swarmModeActivated !== void 0 ? { swarmModeActivated: delegated.swarmModeActivated } : {},
+      ...swarmEvidence !== void 0 ? { swarmEvidence } : {}
+    };
     if (wait.status !== "idle") {
       const result = {
         sessionId: delegated.sessionId,
@@ -22361,7 +22522,8 @@ function createToolHandlers(deps) {
         submitStatus: delegated.status,
         webUrl: delegated.webUrl,
         wait,
-        ...baselineFields
+        ...baselineFields,
+        ...swarmFields
       };
       if (wait.status === "timeout" || wait.status === "aborted" || wait.status === "failed") {
         result.diagnostics = await buildDelegateAndWaitDiagnostics(
@@ -22385,7 +22547,8 @@ function createToolHandlers(deps) {
       handoff,
       changedFiles: handoff.changedFiles,
       reviewPackage,
-      ...baselineFields
+      ...baselineFields,
+      ...swarmFields
     };
   }
   const handlers = {
@@ -22469,7 +22632,8 @@ function createToolHandlers(deps) {
         status: result.status,
         webUrl: buildWebUrl(deps.config.serverUrl, session.id),
         ...baselineStored !== void 0 ? { baselineStored } : {},
-        ...baselineStoreError !== void 0 ? { baselineStoreError } : {}
+        ...baselineStoreError !== void 0 ? { baselineStoreError } : {},
+        ...input.swarmMode !== void 0 ? { swarmModeActivated: input.swarmMode } : {}
       };
     },
     async kimi_delegate_and_wait(input) {
@@ -22706,8 +22870,8 @@ function createToolHandlers(deps) {
 
 // src/preflight.ts
 import { spawn as defaultSpawn } from "node:child_process";
-import { homedir as homedir2 } from "node:os";
-import { join as join3 } from "node:path";
+import { homedir as homedir3 } from "node:os";
+import { join as join4 } from "node:path";
 var DEFAULT_STARTUP_TIMEOUT_MS = 3e4;
 var DEFAULT_POLL_INTERVAL_MS = 500;
 function shellQuote(arg) {
@@ -22715,7 +22879,7 @@ function shellQuote(arg) {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 function defaultResolveToken(config2) {
-  return resolveServerToken(config2.envServerToken, config2.kimiCodeHome, homedir2());
+  return resolveServerToken(config2.envServerToken, config2.kimiCodeHome, homedir3());
 }
 var KimiPreflight = class {
   constructor(config2, http, options = {}) {
@@ -22869,14 +23033,14 @@ var KimiPreflight = class {
     }
     const check2 = (path3) => `test -f ${shellQuote(path3)} && echo "token file exists" || echo "token file missing"`;
     if (serverTokenSource === "kimi_code_home" && kimiCodeHome) {
-      return [check2(join3(kimiCodeHome, "server.token"))];
+      return [check2(join4(kimiCodeHome, "server.token"))];
     }
     if (serverTokenSource === "home") {
-      return [check2(join3(homedir2(), ".kimi-code", "server.token"))];
+      return [check2(join4(homedir3(), ".kimi-code", "server.token"))];
     }
-    const commands = [check2(join3(homedir2(), ".kimi-code", "server.token"))];
+    const commands = [check2(join4(homedir3(), ".kimi-code", "server.token"))];
     if (kimiCodeHome) {
-      commands.push(check2(join3(kimiCodeHome, "server.token")));
+      commands.push(check2(join4(kimiCodeHome, "server.token")));
     }
     return commands;
   }
