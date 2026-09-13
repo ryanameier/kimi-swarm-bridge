@@ -78,8 +78,8 @@ describe('runToolHandler', () => {
 });
 
 describe('MCP server identity', () => {
-  it('reports plugin version 0.3.0 in the source', () => {
+  it('reports plugin version 0.3.2 in the source', () => {
     const source = readFileSync(resolve('src/index.ts'), 'utf8');
-    expect(source).toContain("version: '0.3.0'");
+    expect(source).toContain("version: '0.3.2'");
   });
 });

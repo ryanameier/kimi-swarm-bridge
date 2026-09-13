@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { TOOL_METADATA } from './tool-catalog.js';
 import { createDefaultBaselineStore } from './baseline-store.js';
 import { loadBridgeConfig } from './config.js';
 import { KimiApiError, KimiNetworkError } from './errors.js';
@@ -82,133 +83,165 @@ export function createMcpServer(): McpServer {
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config);
   const handlers = createToolHandlers({ kimi, config, preflight, baselineStore });
-  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.0' });
+  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.2' });
 
-  server.tool(
+  server.registerTool(
     'kimi_delegate_task',
     {
-      cwd: z.string(),
-      task: z.string(),
-      acceptanceCriteria: z.array(z.string()),
-      plan: z.array(z.string()),
-      swarmMode: z.boolean().optional(),
-      sessionId: z.string().optional(),
-      model: z.string().optional(),
-      thinking: z.string().optional(),
+      ...TOOL_METADATA.kimi_delegate_task,
+      inputSchema: {
+        cwd: z.string().describe('Working directory visible to the Kimi runtime. In the managed hosted deployment use /workspace; local desktop paths are not automatically available to the remote runtime.'),
+        task: z.string().describe('Concrete objective for Kimi to execute. Include the requested outcome and relevant constraints.'),
+        acceptanceCriteria: z.array(z.string()).describe('Verifiable conditions that define successful completion. Pass an empty array only when there are genuinely no explicit acceptance checks.'),
+        plan: z.array(z.string()).describe('Ordered implementation or analysis steps Kimi should follow. For swarm work, use distinct non-conflicting scopes that can be delegated to workers.'),
+        swarmMode: z.boolean().optional().describe('Set true to activate and verify Kimi native swarm mode before prompt submission. Activation does not by itself prove AgentSwarm executed; use kimi_delegate_and_wait for structured swarm evidence.'),
+        sessionId: z.string().optional().describe('Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs.'),
+        model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
+        thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_delegate_task(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_delegate_and_wait',
     {
-      cwd: z.string(),
-      task: z.string(),
-      acceptanceCriteria: z.array(z.string()),
-      plan: z.array(z.string()),
-      timeoutMs: z.number().optional(),
-      swarmMode: z.boolean().optional(),
-      sessionId: z.string().optional(),
-      model: z.string().optional(),
-      thinking: z.string().optional(),
-      dedupe: z.object({
-        titleContains: z.string(),
-        status: z.string().optional(),
-        pageSize: z.number().optional(),
-        includeArchive: z.boolean().optional(),
-        excludeEmpty: z.boolean().optional(),
-        reuseIfStatus: z.array(z.string()).optional(),
-        matchAnyCwd: z.boolean().optional(),
-        includeSummary: z.boolean().optional(),
-      }).optional(),
+      ...TOOL_METADATA.kimi_delegate_and_wait,
+      inputSchema: {
+        cwd: z.string().describe('Working directory visible to the Kimi runtime. In the managed hosted deployment use /workspace; local desktop paths are not automatically available to the remote runtime.'),
+        task: z.string().describe('Concrete objective for Kimi to execute. Include the requested outcome and relevant constraints.'),
+        acceptanceCriteria: z.array(z.string()).describe('Verifiable conditions that define successful completion. Pass an empty array only when there are genuinely no explicit acceptance checks.'),
+        plan: z.array(z.string()).describe('Ordered implementation or analysis steps Kimi should follow. For swarm work, use distinct non-conflicting scopes that can be delegated to workers.'),
+        timeoutMs: z.number().optional().describe('Maximum time in milliseconds to wait for this call. A timeout returns control without aborting the Kimi session, so the same session can be waited on later.'),
+        swarmMode: z.boolean().optional().describe('Set true to activate and verify Kimi native swarm mode before prompt submission. When true, the result includes structured swarmEvidence when Kimi wire records are available.'),
+        sessionId: z.string().optional().describe('Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs.'),
+        model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
+        thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
+        dedupe: z.object({
+          titleContains: z.string().describe('Case-insensitive substring used to find an existing recent session before creating a new one. Use a task-specific title fragment.'),
+          status: z.string().optional().describe('Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed.'),
+          pageSize: z.number().optional().describe('Maximum number of recent sessions to inspect for a title match. Defaults to 20.'),
+          includeArchive: z.boolean().optional().describe('Whether archived sessions should be included in the dedupe search.'),
+          excludeEmpty: z.boolean().optional().describe('Whether sessions with no messages should be excluded from the dedupe search.'),
+          reuseIfStatus: z.array(z.string()).optional().describe('Statuses the caller permits for reuse. The bridge still only auto-reuses running, idle, awaiting_approval, and awaiting_question sessions.'),
+          matchAnyCwd: z.boolean().optional().describe('Set true only when intentionally allowing reuse from a different working directory. Defaults to false for workspace safety.'),
+          includeSummary: z.boolean().optional().describe('Fetch recent user/assistant summary data for candidate sessions. Adds latency; leave false for normal dedupe checks.'),
+        }).optional().describe('Optional duplicate-session guard. When supplied, the bridge searches recent sessions before creating a new session and may reuse a compatible match.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_delegate_and_wait(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_wait_until_idle',
     {
-      sessionId: z.string(),
-      timeoutMs: z.number().optional(),
+      ...TOOL_METADATA.kimi_wait_until_idle,
+      inputSchema: {
+        sessionId: z.string().describe('Kimi session ID returned by delegation or session-discovery tools.'),
+        timeoutMs: z.number().optional().describe('Maximum time in milliseconds to poll before returning timeout. Timeout does not abort or otherwise mutate the session.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_wait_until_idle(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_get_handoff',
     {
-      sessionId: z.string(),
+      ...TOOL_METADATA.kimi_get_handoff,
+      inputSchema: {
+        sessionId: z.string().describe('Kimi session ID whose current/final result and Git-change evidence should be retrieved.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_get_handoff(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_review_package',
     {
-      sessionId: z.string(),
+      ...TOOL_METADATA.kimi_review_package,
+      inputSchema: {
+        sessionId: z.string().describe('Kimi session ID to package for review. Normally use a session that is idle or otherwise finished producing changes.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_review_package(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_continue_task',
     {
-      sessionId: z.string(),
-      task: z.string(),
-      acceptanceCriteria: z.array(z.string()).optional(),
-      plan: z.array(z.string()).optional(),
-      swarmMode: z.boolean().optional(),
-      model: z.string().optional(),
-      thinking: z.string().optional(),
+      ...TOOL_METADATA.kimi_continue_task,
+      inputSchema: {
+        sessionId: z.string().describe('Existing Kimi session ID whose context should be preserved for the follow-up task.'),
+        task: z.string().describe('Follow-up instruction, correction, or additional work to perform in the existing session.'),
+        acceptanceCriteria: z.array(z.string()).optional().describe('Optional verifiable conditions for the follow-up work.'),
+        plan: z.array(z.string()).optional().describe('Optional ordered steps for the follow-up work.'),
+        swarmMode: z.boolean().optional().describe('Optional swarm-mode setting to verify before the continuation prompt. Set true only when the follow-up should allow native AgentSwarm.'),
+        model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to keep the centrally configured model binding.'),
+        thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to keep the bridge default.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_continue_task(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_get_diff',
     {
-      sessionId: z.string(),
-      path: z.string(),
+      ...TOOL_METADATA.kimi_get_diff,
+      inputSchema: {
+        sessionId: z.string().describe('Kimi session ID that owns the workspace/file change.'),
+        path: z.string().describe('Workspace-relative file path whose diff should be returned. Prefer a path reported by kimi_get_handoff or kimi_review_package.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_get_diff(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_abort',
     {
-      sessionId: z.string(),
+      ...TOOL_METADATA.kimi_abort,
+      inputSchema: {
+        sessionId: z.string().describe('Kimi session ID to stop. Use the ID returned by delegation or session-discovery tools and confirm it is the intended running job.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_abort(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_bridge_status',
-    {},
+    {
+      ...TOOL_METADATA.kimi_bridge_status,
+    },
     async () => runToolHandler(() => handlers.kimi_bridge_status()),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_recent_sessions',
     {
-      pageSize: z.number().optional(),
-      status: z.string().optional(),
-      includeArchive: z.boolean().optional(),
-      excludeEmpty: z.boolean().optional(),
+      ...TOOL_METADATA.kimi_recent_sessions,
+      inputSchema: {
+        pageSize: z.number().optional().describe('Maximum number of recent sessions to return. Defaults to 10.'),
+        status: z.string().optional().describe('Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed.'),
+        includeArchive: z.boolean().optional().describe('Whether archived Kimi sessions should be included.'),
+        excludeEmpty: z.boolean().optional().describe('Whether sessions with no messages should be excluded.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_recent_sessions(input)),
   );
 
-  server.tool(
+  server.registerTool(
     'kimi_find_recent_session',
     {
-      titleContains: z.string(),
-      status: z.string().optional(),
-      pageSize: z.number().optional(),
-      includeArchive: z.boolean().optional(),
-      excludeEmpty: z.boolean().optional(),
-      cwd: z.string().optional(),
-      matchAnyCwd: z.boolean().optional(),
-      includeSummary: z.boolean().optional(),
+      ...TOOL_METADATA.kimi_find_recent_session,
+      inputSchema: {
+        titleContains: z.string().describe('Case-insensitive substring that must appear in the Kimi session title. Leading and trailing whitespace is ignored.'),
+        status: z.string().optional().describe('Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed.'),
+        pageSize: z.number().optional().describe('Maximum number of recent sessions to inspect. Defaults to 20.'),
+        includeArchive: z.boolean().optional().describe('Whether archived Kimi sessions should be included in the search.'),
+        excludeEmpty: z.boolean().optional().describe('Whether sessions with no messages should be excluded from the search.'),
+        cwd: z.string().optional().describe('Optional working directory used to constrain matches to the same workspace. Recommended for safe recovery/dedupe.'),
+        matchAnyCwd: z.boolean().optional().describe('Set true only when intentionally allowing a title match from any working directory. Defaults to false when cwd is provided.'),
+        includeSummary: z.boolean().optional().describe('Fetch message count and latest meaningful user/assistant messages for candidates. Adds latency; leave false unless recovery context is needed.'),
+      },
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input)),
   );
