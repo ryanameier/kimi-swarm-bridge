@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -9,15 +9,21 @@ import { describe, expect, it } from 'vitest';
 const pluginRoot = resolve('plugins/kimi-delegate');
 const bundlePath = join(pluginRoot, 'mcp/server.mjs');
 
+const pluginValidatorPath = join(
+  homedir(),
+  '.codex/skills/.system/plugin-creator/scripts/validate_plugin.py',
+);
+
 describe('Codex plugin package', () => {
-  it('passes local plugin validation', () => {
+  const pluginValidationTest = existsSync(pluginValidatorPath)
+    ? it
+    : it.skip;
+
+  pluginValidationTest('passes local plugin validation', () => {
     expect(() => {
       execFileSync(
         'python3',
-        [
-          '/Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py',
-          pluginRoot,
-        ],
+        [pluginValidatorPath, pluginRoot],
         { stdio: 'pipe' },
       );
     }).not.toThrow();
