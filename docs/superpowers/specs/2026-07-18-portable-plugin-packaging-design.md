@@ -5,7 +5,7 @@
 The current `kimi-delegate` plugin starts its MCP server through an absolute path to one developer checkout:
 
 ```text
-/Users/ximenchuifeng/Coding/codex-kimi-bridge/dist/index.js
+<repo-root>/dist/index.js
 ```
 
 That path works only on the original machine. Codex copies a local plugin into its plugin cache when installing it, so replacing the absolute path with `../../dist/index.js` would still fail after installation: the cached plugin no longer sits beside the repository `dist` directory.

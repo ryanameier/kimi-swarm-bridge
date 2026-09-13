@@ -174,11 +174,11 @@ export class KimiPreflight {
       if (this.config.autoStart) {
         return [
           '下一次任务调用会自动尝试启动 Kimi server。',
-          '也可以手动运行：kimi server run --keep-alive',
+          '也可以手动运行：kimi web --no-open --host 127.0.0.1 --port 58627',
         ];
       }
       return [
-        '请手动启动 Kimi server，例如：kimi server run --keep-alive',
+        '请手动启动 Kimi server，例如：kimi web --no-open --host 127.0.0.1 --port 58627',
         '或设置 KIMI_AUTO_START=true 让 bridge 在需要时自动启动。',
       ];
     }
@@ -197,9 +197,9 @@ export class KimiPreflight {
 
     if (status === 'server_unreachable') {
       if (this.config.autoStart) {
-        commands.push(`${shellQuote(this.config.kimiCommand)} server run --keep-alive`);
+        commands.push(`${shellQuote(this.config.kimiCommand)} web --no-open --host 127.0.0.1 --port 58627`);
       } else {
-        commands.push(`${shellQuote(this.config.kimiCommand)} server start`);
+        commands.push(`${shellQuote(this.config.kimiCommand)} web --no-open --host 127.0.0.1 --port 58627`);
       }
     }
 
@@ -255,9 +255,12 @@ export class KimiPreflight {
   private async startServer(): Promise<void> {
     return new Promise((resolve, reject) => {
       let settled = false;
-      // `kimi server run` keeps the server in the foreground; it does not open a web UI by default,
-      // so no --no-open flag is needed.
-      const child = this.spawnImpl(this.config.kimiCommand, ['server', 'run', '--keep-alive'], {
+      // Current Kimi Code exposes the local service through `kimi web`.
+      // Keep it loopback-only and suppress automatic browser launch.
+      const child = this.spawnImpl(
+        this.config.kimiCommand,
+        ['web', '--no-open', '--host', '127.0.0.1', '--port', '58627'],
+        {
         detached: true,
         stdio: 'ignore',
       });

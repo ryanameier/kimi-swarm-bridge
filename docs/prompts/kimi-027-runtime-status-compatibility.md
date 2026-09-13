@@ -8,7 +8,7 @@ Use this prompt in a fresh Codex task to coordinate the compatibility implementa
 你是主控 Codex，负责 spec/plan/review/verification；具体代码实现全部交给 Kimi。不要由 Codex 手写实现代码。
 
 工作目录：
-/Users/ximenchuifeng/Coding/codex-kimi-bridge
+<repo-root>
 
 已批准 spec：
 docs/superpowers/specs/2026-07-18-kimi-027-runtime-status-compatibility-design.md
@@ -49,7 +49,7 @@ Kimi 0.27 runtime status compatibility
 8. 如果 Codex 任务被中断，先按标题查找最近 session，并结合 webUrl、cwd 和消息摘要确认原 session；不要盲目重复 delegate。
 
 Kimi 实施边界：
-- 不修改 /Users/ximenchuifeng/Coding/BigWave/kimi-code。
+- 不修改 <kimi-code-source>。
 - 不迁移 /api/v2，不引入 @moonshot-ai/klient。
 - 不修改 Codex 插件安装机制。
 - 不自动回答 approval/question。
@@ -86,7 +86,7 @@ Kimi 完成后必须返回：
 
 ```json
 {
-  "cwd": "/Users/ximenchuifeng/Coding/codex-kimi-bridge",
+  "cwd": "<repo-root>",
   "task": "Kimi 0.27 runtime status compatibility",
   "acceptanceCriteria": [
     "Legacy status responses remain compatible",

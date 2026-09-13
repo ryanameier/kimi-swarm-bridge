@@ -2,19 +2,11 @@
 
 ## Project
 
-`codex-kimi-bridge` is a local Codex plugin plus MCP bridge. Its purpose is to let Codex act as planner/reviewer while Kimi Code performs implementation through the local Kimi server.
+`kimi-swarm-bridge` is an MCP bridge for Kimi Code, including native `AgentSwarm`, with inference routed through ai&.
 
-Default workspace:
+The repository is portable. Do not assume a specific local checkout path.
 
-```text
-/Users/ximenchuifeng/Coding/codex-kimi-bridge
-```
-
-Related Kimi Code source checkout:
-
-```text
-/Users/ximenchuifeng/Coding/BigWave/kimi-code
-```
+The official runtime pins `@moonshot-ai/kimi-code@0.42.0`; a separate Kimi Code source checkout is not required.
 
 ## Collaboration Rule
 
@@ -38,7 +30,7 @@ docs/prompts/kimi-delegate-workflow.md
 Local marketplace:
 
 ```text
-/Users/ximenchuifeng/Coding/codex-kimi-bridge/.agents/plugins/marketplace.json
+.agents/plugins/marketplace.json
 ```
 
 Plugin id:
@@ -46,6 +38,8 @@ Plugin id:
 ```text
 kimi-delegate@codex-kimi-bridge-local
 ```
+
+`codex-kimi-bridge-local` is retained as a legacy compatibility identifier for existing Codex plugin installs.
 
 MCP config:
 
@@ -75,34 +69,29 @@ Then open a new Codex thread or restart Codex if the tool list does not refresh.
 
 ## Kimi Server
 
-Default server:
+Default internal server:
 
 ```text
 http://127.0.0.1:58627
 ```
 
-The bridge supports both legacy Kimi Session `status` responses and Kimi 0.27+ `busy` / `pending_interaction` / `last_turn_reason` responses. All lifecycle decisions normalize these into one Bridge runtime status. `kimi_bridge_status` may expose safe `serverVersion` and `backend` metadata from `/api/v1/meta`, but this metadata is diagnostic only and never selects the compatibility path.
-
-Recommended daily setup:
+Current supported manual launch command:
 
 ```bash
-kimi server install
-kimi server start
+kimi web --no-open --host 127.0.0.1 --port 58627
 ```
 
-The bridge can also auto-start Kimi with:
+The official Docker runtime supervises Kimi as a separate loopback-only process and points the MCP bridge at it. Do not expose port `58627` publicly.
 
-```bash
-kimi server run --keep-alive
-```
+The bridge supports both legacy Kimi Session `status` responses and newer `busy` / `pending_interaction` / `last_turn_reason` responses. Lifecycle decisions normalize these into one bridge runtime status. `kimi_bridge_status` may expose safe `serverVersion` and `backend` metadata from `/api/v1/meta`, but this metadata is diagnostic only.
 
-Token resolution order:
+Token resolution order for direct/local bridge use:
 
 1. `KIMI_SERVER_TOKEN`
 2. `$KIMI_CODE_HOME/server.token`
 3. `~/.kimi-code/server.token`
 
-Do not commit real tokens. `.mcp.json` keeps `KIMI_SERVER_TOKEN` empty.
+Do not commit real tokens. Hosted deployments inject `AIAND_API_KEY` and the MCP credential at runtime.
 
 ## Useful Kimi Delegate Tools
 
@@ -168,30 +157,27 @@ If you need more control, or if the task title is hard to make unique, call `kim
 Run these before accepting implementation:
 
 ```bash
-pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+pnpm test
 ```
 
-For plugin installation smoke checks:
+The external Codex `plugin-creator` validator is optional. `test/plugin.test.ts` runs it when the validator is installed and skips only that validator check when it is unavailable.
+
+For legacy local plugin installation smoke checks:
 
 ```bash
 codex plugin list | rg 'kimi-delegate|codex-kimi-bridge-local'
 ```
 
-Expected status:
-
-```text
-kimi-delegate@codex-kimi-bridge-local  installed, enabled  0.3.0
-```
+The `codex-kimi-bridge-local` marketplace id is retained for compatibility with existing installs.
 
 ## Completed MVP Capabilities
 
 - Codex local plugin install works.
 - MCP tools are exposed by Codex.
 - Kimi server auth is handled via server token.
-- Kimi server preflight and auto-start work.
+- Kimi server preflight works; the official Docker runtime supervises the current Kimi Web process separately.
 - Successful preflight checks are short-cached by `KIMI_PREFLIGHT_CACHE_MS`.
 - `kimi_bridge_status` reports `webBaseUrl`, `canOpenWeb`, `status`, `nextActions`, and diagnostics without leaking token values, and may include safe `serverVersion`/`backend` metadata from `/api/v1/meta`.
 - `kimi_delegate_and_wait` returns an embedded `reviewPackage` on idle results.

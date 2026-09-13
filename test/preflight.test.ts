@@ -113,7 +113,10 @@ describe('KimiPreflight', () => {
     const result = await promise;
 
     expect(result.healthzOk).toBe(true);
-    expect(spawn).toHaveBeenCalledWith('kimi', ['server', 'run', '--keep-alive'], {
+    expect(spawn).toHaveBeenCalledWith(
+      'kimi',
+      ['web', '--no-open', '--host', '127.0.0.1', '--port', '58627'],
+      {
       detached: true,
       stdio: 'ignore',
     });
@@ -230,7 +233,7 @@ describe('KimiPreflight', () => {
     expect(status.canOpenWeb).toBe(false);
     expect(status.webBaseUrl).toBe('http://127.0.0.1:58627/');
     expect(status.nextActions.some((a) => a.includes('自动'))).toBe(true);
-    expect(status.nextActions.some((a) => a.includes('--keep-alive'))).toBe(true);
+    expect(status.nextActions.some((a) => a.includes('kimi web --no-open'))).toBe(true);
     expect(spawn).not.toHaveBeenCalled();
   });
 
@@ -311,11 +314,11 @@ describe('KimiPreflight', () => {
 
       const status = await preflight.getStatus();
       expect(status.status).toBe('server_unreachable');
-      expect(status.commands).toContain('kimi server start');
+      expect(status.commands).toContain('kimi web --no-open --host 127.0.0.1 --port 58627');
       expect(spawn).not.toHaveBeenCalled();
     });
 
-    it('includes the keep-alive command using the configured kimiCommand when server is unreachable and autoStart is true', async () => {
+    it('includes the web command using the configured kimiCommand when server is unreachable and autoStart is true', async () => {
       const http = makeHttp({ healthz: ['error'] });
       const spawn = vi.fn(() => makeFakeChildProcess());
       const preflight = new KimiPreflight(
@@ -326,7 +329,7 @@ describe('KimiPreflight', () => {
 
       const status = await preflight.getStatus();
       expect(status.status).toBe('server_unreachable');
-      expect(status.commands).toContain('mykimi server run --keep-alive');
+      expect(status.commands).toContain('mykimi web --no-open --host 127.0.0.1 --port 58627');
       expect(spawn).not.toHaveBeenCalled();
     });
 
@@ -370,7 +373,9 @@ describe('KimiPreflight', () => {
 
       const status = await preflight.getStatus();
       expect(status.status).toBe('server_unreachable');
-      expect(status.commands).toContain(`${shellQuote('my kimi')} server start`);
+      expect(status.commands).toContain(
+        `${shellQuote('my kimi')} web --no-open --host 127.0.0.1 --port 58627`,
+      );
       expect(spawn).not.toHaveBeenCalled();
     });
 
@@ -385,7 +390,9 @@ describe('KimiPreflight', () => {
 
       const status = await preflight.getStatus();
       expect(status.status).toBe('server_unreachable');
-      expect(status.commands).toContain(`${shellQuote("ki'mi")} server run --keep-alive`);
+      expect(status.commands).toContain(
+        `${shellQuote("ki'mi")} web --no-open --host 127.0.0.1 --port 58627`,
+      );
       expect(spawn).not.toHaveBeenCalled();
     });
 

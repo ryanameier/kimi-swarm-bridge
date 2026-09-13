@@ -73,7 +73,7 @@ describe('Codex plugin package', () => {
       execFileSync(
         'python3',
         [
-          '/Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py',
+          '<codex-plugin-validator>/validate_plugin.py',
           pluginRoot,
         ],
         { stdio: 'pipe' },
@@ -442,7 +442,7 @@ pnpm install
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 `pnpm build` compiles `dist/` for development and regenerates the tracked `plugins/kimi-delegate/mcp/server.mjs`. Commit the bundle whenever source changes affect the MCP runtime.
@@ -459,7 +459,7 @@ Document the existing local-marketplace update flow:
 
 ```bash
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/update_plugin_cachebuster.py plugins/kimi-delegate
 codex plugin add kimi-delegate@codex-kimi-bridge-local
 ```
 
@@ -507,7 +507,7 @@ Remove portable packaging from `Good Next Tasks` because this plan completes it.
 Run:
 
 ```bash
-rg -n '/Users/ximenchuifeng/Coding/codex-kimi-bridge/dist/index.js|\.\./\.\./dist/index.js' README.md AGENTS.md plugins/kimi-delegate/.mcp.json
+rg -n '<repo-root>/dist/index.js|\.\./\.\./dist/index.js' README.md AGENTS.md plugins/kimi-delegate/.mcp.json
 rg -n 'Install From Git|Reinstall A Development Build|server.mjs|Node.js 20|cachebuster' README.md AGENTS.md
 ```
 
@@ -538,7 +538,7 @@ Run in this order:
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 Expected: all Vitest files pass, typecheck exits 0, TypeScript/esbuild build exits 0, and plugin validation prints `Plugin validation passed`.
@@ -603,7 +603,7 @@ Codex must inspect every changed source, test, generated bundle, manifest, lockf
 Run:
 
 ```bash
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/update_plugin_cachebuster.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/update_plugin_cachebuster.py plugins/kimi-delegate
 codex plugin add kimi-delegate@codex-kimi-bridge-local
 codex plugin list | rg 'kimi-delegate|codex-kimi-bridge-local'
 ```
@@ -622,7 +622,7 @@ Do not use `git checkout`, `git restore`, or any command that could discard unre
 
 - [ ] **Step 4: User opens a new Codex task and Codex runs packaged-plugin smoke**
 
-In the new task, call `kimi_bridge_status` and confirm the tool loads from the installed plugin and returns a valid Bridge status. Then use `kimi_delegate_and_wait` for a stable-title, no-file-change task with cwd `/Users/ximenchuifeng/Coding/codex-kimi-bridge`; require Kimi only to inspect repository status and report it without modifying files.
+In the new task, call `kimi_bridge_status` and confirm the tool loads from the installed plugin and returns a valid Bridge status. Then use `kimi_delegate_and_wait` for a stable-title, no-file-change task with cwd `<repo-root>`; require Kimi only to inspect repository status and report it without modifying files.
 
 Expected: status tool responds, delegate reaches `idle`, a `reviewPackage` is present, the stable-title dedupe guard finds only one matching session, and no repository file changes are introduced.
 

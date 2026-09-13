@@ -22828,11 +22828,11 @@ var KimiPreflight = class {
       if (this.config.autoStart) {
         return [
           "\u4E0B\u4E00\u6B21\u4EFB\u52A1\u8C03\u7528\u4F1A\u81EA\u52A8\u5C1D\u8BD5\u542F\u52A8 Kimi server\u3002",
-          "\u4E5F\u53EF\u4EE5\u624B\u52A8\u8FD0\u884C\uFF1Akimi server run --keep-alive"
+          "\u4E5F\u53EF\u4EE5\u624B\u52A8\u8FD0\u884C\uFF1Akimi web --no-open --host 127.0.0.1 --port 58627"
         ];
       }
       return [
-        "\u8BF7\u624B\u52A8\u542F\u52A8 Kimi server\uFF0C\u4F8B\u5982\uFF1Akimi server run --keep-alive",
+        "\u8BF7\u624B\u52A8\u542F\u52A8 Kimi server\uFF0C\u4F8B\u5982\uFF1Akimi web --no-open --host 127.0.0.1 --port 58627",
         "\u6216\u8BBE\u7F6E KIMI_AUTO_START=true \u8BA9 bridge \u5728\u9700\u8981\u65F6\u81EA\u52A8\u542F\u52A8\u3002"
       ];
     }
@@ -22848,9 +22848,9 @@ var KimiPreflight = class {
     const commands = [];
     if (status === "server_unreachable") {
       if (this.config.autoStart) {
-        commands.push(`${shellQuote(this.config.kimiCommand)} server run --keep-alive`);
+        commands.push(`${shellQuote(this.config.kimiCommand)} web --no-open --host 127.0.0.1 --port 58627`);
       } else {
-        commands.push(`${shellQuote(this.config.kimiCommand)} server start`);
+        commands.push(`${shellQuote(this.config.kimiCommand)} web --no-open --host 127.0.0.1 --port 58627`);
       }
     }
     if (status === "auth_failed") {
@@ -22891,10 +22891,14 @@ var KimiPreflight = class {
   async startServer() {
     return new Promise((resolve2, reject) => {
       let settled = false;
-      const child = this.spawnImpl(this.config.kimiCommand, ["server", "run", "--keep-alive"], {
-        detached: true,
-        stdio: "ignore"
-      });
+      const child = this.spawnImpl(
+        this.config.kimiCommand,
+        ["web", "--no-open", "--host", "127.0.0.1", "--port", "58627"],
+        {
+          detached: true,
+          stdio: "ignore"
+        }
+      );
       const finish = (error2) => {
         if (settled) return;
         settled = true;
@@ -23026,7 +23030,7 @@ function createMcpServer() {
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config2);
   const handlers = createToolHandlers({ kimi, config: config2, preflight, baselineStore });
-  const server = new McpServer({ name: "codex-kimi-bridge", version: "0.3.0" });
+  const server = new McpServer({ name: "kimi-swarm-bridge", version: "0.3.0" });
   server.tool(
     "kimi_delegate_task",
     {

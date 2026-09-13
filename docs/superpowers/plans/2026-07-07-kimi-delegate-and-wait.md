@@ -16,7 +16,7 @@
 - Preserve existing `kimi_delegate_task`, `kimi_wait_until_idle`, `kimi_get_handoff`, and `kimi_get_diff` behavior.
 - `kimi_delegate_and_wait` must preflight once through the existing preflight wrapper.
 - Do not leak tokens or include token values in any output.
-- Full verification must pass: `pnpm test`, `pnpm typecheck`, `pnpm build`, and `python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate`.
+- Full verification must pass: `pnpm test`, `pnpm typecheck`, `pnpm build`, and `python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate`.
 
 ---
 
@@ -415,7 +415,7 @@ Run:
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 Expected:

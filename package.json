@@ -1,5 +1,5 @@
 {
-  "name": "codex-kimi-bridge",
+  "name": "kimi-swarm-bridge",
   "version": "0.3.0",
   "private": true,
   "type": "module",
@@ -7,13 +7,14 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ximenchuifeng/codex-kimi-bridge.git"
+    "url": "git+https://github.com/ryanameier/kimi-swarm-bridge.git"
   },
-  "homepage": "https://github.com/ximenchuifeng/codex-kimi-bridge#readme",
+  "homepage": "https://github.com/ryanameier/kimi-swarm-bridge#readme",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "bin": {
+    "kimi-swarm-bridge": "dist/index.js",
     "codex-kimi-bridge": "dist/index.js"
   },
   "scripts": {
@@ -34,5 +35,9 @@
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
     "vitest": "^2.1.0"
+  },
+  "description": "MCP bridge for Kimi Code native AgentSwarm with inference through ai&.",
+  "bugs": {
+    "url": "https://github.com/ryanameier/kimi-swarm-bridge/issues"
   }
 }

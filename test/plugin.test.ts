@@ -93,17 +93,17 @@ describe('Codex plugin package', () => {
       author: 'ximenchuifeng',
       repository: {
         type: 'git',
-        url: 'git+https://github.com/ximenchuifeng/codex-kimi-bridge.git',
+        url: 'git+https://github.com/ryanameier/kimi-swarm-bridge.git',
       },
-      homepage: 'https://github.com/ximenchuifeng/codex-kimi-bridge#readme',
-      engines: { node: '>=20' },
+      homepage: 'https://github.com/ryanameier/kimi-swarm-bridge#readme',
+      engines: { node: '>=22.19.0' },
     });
     expect(manifest).toMatchObject({
       name: 'kimi-delegate',
       version: '0.3.0',
       license: 'MIT',
-      homepage: 'https://github.com/ximenchuifeng/codex-kimi-bridge#readme',
-      repository: 'https://github.com/ximenchuifeng/codex-kimi-bridge',
+      homepage: 'https://github.com/ryanameier/kimi-swarm-bridge#readme',
+      repository: 'https://github.com/ryanameier/kimi-swarm-bridge',
       author: {
         name: 'ximenchuifeng',
         url: 'https://github.com/ximenchuifeng',

@@ -546,7 +546,7 @@ Add a "Recommended seamless usage" section covering `kimi server install` + `kim
 - [ ] **Step 3: Validate plugin**
 
 ```bash
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 - [ ] **Step 4: Commit**
@@ -566,7 +566,7 @@ git commit -m "docs: document seamless usage and update plugin env"
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 - [ ] **Step 2: Report results**

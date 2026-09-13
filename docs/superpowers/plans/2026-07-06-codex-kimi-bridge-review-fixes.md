@@ -17,7 +17,7 @@
 - Default implementation permission mode remains `auto`, not `yolo`.
 - Do not auto-approve destructive or broad commands.
 - Tests must reflect real Kimi server routes, not only fake-server conveniences.
-- Plugin validation must pass with `/Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py`.
+- Plugin validation must pass with `<codex-plugin-validator>/validate_plugin.py`.
 
 ---
 
@@ -62,7 +62,7 @@ describe('Codex plugin manifest', () => {
       execFileSync(
         'python3',
         [
-          '/Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py',
+          '<codex-plugin-validator>/validate_plugin.py',
           'plugins/kimi-delegate',
         ],
         { stdio: 'pipe' },
@@ -109,7 +109,7 @@ Run:
 
 ```bash
 pnpm test -- test/plugin.test.ts
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 Expected: both pass.
@@ -622,7 +622,7 @@ Run:
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 git status --short
 ```
 

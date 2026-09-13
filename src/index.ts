@@ -82,7 +82,7 @@ export function createMcpServer(): McpServer {
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config);
   const handlers = createToolHandlers({ kimi, config, preflight, baselineStore });
-  const server = new McpServer({ name: 'codex-kimi-bridge', version: '0.3.0' });
+  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.0' });
 
   server.tool(
     'kimi_delegate_task',

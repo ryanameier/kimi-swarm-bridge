@@ -6,8 +6,8 @@
     "name": "ximenchuifeng",
     "url": "https://github.com/ximenchuifeng"
   },
-  "homepage": "https://github.com/ximenchuifeng/codex-kimi-bridge#readme",
-  "repository": "https://github.com/ximenchuifeng/codex-kimi-bridge",
+  "homepage": "https://github.com/ryanameier/kimi-swarm-bridge#readme",
+  "repository": "https://github.com/ryanameier/kimi-swarm-bridge",
   "license": "MIT",
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
@@ -17,7 +17,10 @@
     "longDescription": "A local bridge that lets Codex coordinate, review, and continue implementation tasks executed by Kimi Code.",
     "developerName": "ximenchuifeng",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": "Use the kimi-delegate tools when the user wants Codex to coordinate a software task while Kimi Code performs the implementation. Prepare a spec and plan, delegate with `kimi_delegate_task`, wait with `kimi_wait_until_idle`, gather the handoff and diff with `kimi_get_handoff` and `kimi_get_diff`, and continue with `kimi_continue_task` until acceptance criteria pass. Do not auto-approve destructive commands."
   }
 }

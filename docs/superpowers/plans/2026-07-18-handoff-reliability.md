@@ -661,7 +661,7 @@ Expected: no whitespace errors; only intended implementation, test, documentatio
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 Expected:

@@ -30,7 +30,7 @@ This is a corrective pass over the existing implementation, not a rewrite.
 `plugins/kimi-delegate/.codex-plugin/plugin.json` must pass:
 
 ```bash
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 Expected manifest shape:
@@ -120,7 +120,7 @@ Run:
 pnpm test
 pnpm typecheck
 pnpm build
-python3 /Users/ximenchuifeng/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/kimi-delegate
+python3 <codex-plugin-validator>/validate_plugin.py plugins/kimi-delegate
 ```
 
 ## Success Criteria
