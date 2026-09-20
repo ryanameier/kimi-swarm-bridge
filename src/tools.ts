@@ -967,12 +967,25 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
   };
 
+  async function getHandoffWithSwarmEvidence(input: GetHandoffInput) {
+    const handoff = await handlers.kimi_get_handoff(input);
+    const swarmEvidence = await readSwarmEvidence({
+      kimiCodeHome: deps.config.kimiCodeHome,
+      sessionId: input.sessionId,
+    });
+
+    return {
+      ...handoff,
+      swarmEvidence,
+    };
+  }
+
   return {
     ...handlers,
     kimi_delegate_task: withPreflight(deps.preflight, handlers.kimi_delegate_task),
     kimi_delegate_and_wait: withPreflight(deps.preflight, handlers.kimi_delegate_and_wait),
     kimi_wait_until_idle: withPreflight(deps.preflight, handlers.kimi_wait_until_idle),
-    kimi_get_handoff: withPreflight(deps.preflight, handlers.kimi_get_handoff),
+    kimi_get_handoff: withPreflight(deps.preflight, getHandoffWithSwarmEvidence),
     kimi_review_package: withPreflight(deps.preflight, handlers.kimi_review_package),
     kimi_continue_task: withPreflight(deps.preflight, handlers.kimi_continue_task),
     kimi_get_diff: withPreflight(deps.preflight, handlers.kimi_get_diff),

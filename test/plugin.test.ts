@@ -88,7 +88,7 @@ describe('Codex plugin package', () => {
     );
 
     expect(packageJson).toMatchObject({
-      version: '0.3.2',
+      version: '0.3.3',
       license: 'MIT',
       author: 'ximenchuifeng',
       repository: {
@@ -100,7 +100,7 @@ describe('Codex plugin package', () => {
     });
     expect(manifest).toMatchObject({
       name: 'kimi-delegate',
-      version: '0.3.2',
+      version: '0.3.3',
       license: 'MIT',
       homepage: 'https://github.com/ryanameier/kimi-swarm-bridge#readme',
       repository: 'https://github.com/ryanameier/kimi-swarm-bridge',
@@ -113,7 +113,7 @@ describe('Codex plugin package', () => {
     expect(existsSync(resolve('LICENSE'))).toBe(true);
 
     const bundleText = readFileSync(bundlePath, 'utf8');
-    expect(bundleText).toContain('0.3.2');
+    expect(bundleText).toContain('0.3.3');
 
     const readme = readFileSync(resolve('README.md'), 'utf8');
     const skill = readFileSync(join(pluginRoot, 'skills/kimi-delegate/SKILL.md'), 'utf8');

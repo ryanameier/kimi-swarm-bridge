@@ -38,7 +38,7 @@ export const TOOL_METADATA = {
   },
   kimi_get_handoff: {
     title: 'Get Kimi Handoff',
-    description: 'Read the current/final handoff for one Kimi session, including the assistant result, changed files, committed changes, working-tree changes, and Git baseline evidence. Use after a session finishes when the caller needs the actual result or change details; use kimi_review_package for a condensed reviewer-oriented package. This is read-only and does not modify the session or workspace.',
+    description: 'Read the current/final handoff for one Kimi session, including the assistant result, changed files, committed changes, working-tree changes, Git baseline evidence, and a fresh structured swarmEvidence snapshot. Use this after a long swarm times out: first call kimi_wait_until_idle on the same session, then call kimi_get_handoff to retrieve final native AgentSwarm worker/model evidence without submitting another prompt. Use kimi_review_package for a condensed reviewer-oriented package. This is read-only and does not modify the session or workspace.',
     annotations: READ_ONLY,
   },
   kimi_review_package: {

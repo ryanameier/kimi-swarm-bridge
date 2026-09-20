@@ -21133,7 +21133,7 @@ var TOOL_METADATA = {
   },
   kimi_get_handoff: {
     title: "Get Kimi Handoff",
-    description: "Read the current/final handoff for one Kimi session, including the assistant result, changed files, committed changes, working-tree changes, and Git baseline evidence. Use after a session finishes when the caller needs the actual result or change details; use kimi_review_package for a condensed reviewer-oriented package. This is read-only and does not modify the session or workspace.",
+    description: "Read the current/final handoff for one Kimi session, including the assistant result, changed files, committed changes, working-tree changes, Git baseline evidence, and a fresh structured swarmEvidence snapshot. Use this after a long swarm times out: first call kimi_wait_until_idle on the same session, then call kimi_get_handoff to retrieve final native AgentSwarm worker/model evidence without submitting another prompt. Use kimi_review_package for a condensed reviewer-oriented package. This is read-only and does not modify the session or workspace.",
     annotations: READ_ONLY
   },
   kimi_review_package: {
@@ -22922,12 +22922,23 @@ function createToolHandlers(deps) {
       return { sessionId: input.sessionId, aborted: true };
     }
   };
+  async function getHandoffWithSwarmEvidence(input) {
+    const handoff = await handlers.kimi_get_handoff(input);
+    const swarmEvidence = await readSwarmEvidence({
+      kimiCodeHome: deps.config.kimiCodeHome,
+      sessionId: input.sessionId
+    });
+    return {
+      ...handoff,
+      swarmEvidence
+    };
+  }
   return {
     ...handlers,
     kimi_delegate_task: withPreflight(deps.preflight, handlers.kimi_delegate_task),
     kimi_delegate_and_wait: withPreflight(deps.preflight, handlers.kimi_delegate_and_wait),
     kimi_wait_until_idle: withPreflight(deps.preflight, handlers.kimi_wait_until_idle),
-    kimi_get_handoff: withPreflight(deps.preflight, handlers.kimi_get_handoff),
+    kimi_get_handoff: withPreflight(deps.preflight, getHandoffWithSwarmEvidence),
     kimi_review_package: withPreflight(deps.preflight, handlers.kimi_review_package),
     kimi_continue_task: withPreflight(deps.preflight, handlers.kimi_continue_task),
     kimi_get_diff: withPreflight(deps.preflight, handlers.kimi_get_diff),
@@ -23263,7 +23274,7 @@ function createMcpServer() {
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config2);
   const handlers = createToolHandlers({ kimi, config: config2, preflight, baselineStore });
-  const server = new McpServer({ name: "kimi-swarm-bridge", version: "0.3.2" });
+  const server = new McpServer({ name: "kimi-swarm-bridge", version: "0.3.3" });
   server.registerTool(
     "kimi_delegate_task",
     {
