@@ -549,6 +549,25 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
   const gitInspector = deps.gitInspector ?? new NodeGitInspector();
   const baselineStore = deps.baselineStore ?? new InMemoryBaselineStore();
 
+  function requireOwnedSession(sessionId: string): JobRecord | undefined {
+    const jobRegistry = deps.jobRegistry;
+    const jobOwner = deps.jobOwner;
+
+    if (!jobRegistry || !jobOwner) {
+      return undefined;
+    }
+
+    const job = jobRegistry.getOwnedJobBySession(sessionId, jobOwner);
+
+    if (!job) {
+      throw new Error(
+        'Existing session is not owned by this connector.',
+      );
+    }
+
+    return job;
+  }
+
   function buildReviewPackage(sessionId: string, handoff: KimiHandoff): ReviewPackageResult {
     const diffsWithContent = handoff.diffs.filter((d) => d.diff.length > 0).length;
     const committed = handoff.committedChanges;
@@ -861,6 +880,10 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         const userAllowsReuse = match && reuseIfStatus.includes(match.status);
         const bridgeSupportsReuse = match && supportedDedupeReuseStatuses.includes(match.status);
         const canReuse = userAllowsReuse && bridgeSupportsReuse;
+
+        if (canReuse) {
+          requireOwnedSession(match.sessionId);
+        }
         const cwdMatched = match !== undefined
           ? normalizeCwd(match.cwd) === normalizeCwd(input.cwd)
           : (findResult.skippedCandidates && findResult.skippedCandidates.length > 0 ? false : undefined);
@@ -958,6 +981,8 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_wait_until_idle(input: WaitUntilIdleInput) {
+      requireOwnedSession(input.sessionId);
+
       const result = await waitUntilIdle({
         sessionId: input.sessionId,
         timeoutMs: input.timeoutMs ?? deps.config.requestTimeoutMs,
@@ -979,6 +1004,8 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_get_handoff(input: GetHandoffInput) {
+      requireOwnedSession(input.sessionId);
+
       const [messages, gitStatus, session] = await Promise.all([
         deps.kimi.listMessages(input.sessionId),
         deps.kimi.getGitStatus(input.sessionId),
@@ -1058,6 +1085,8 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_continue_task(input: ContinueTaskInput) {
+      requireOwnedSession(input.sessionId);
+
       const prompt = buildContinuationPrompt({
         sessionId: input.sessionId,
         task: input.task,
@@ -1077,10 +1106,12 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_get_diff(input: GetDiffInput) {
+      requireOwnedSession(input.sessionId);
       return deps.kimi.getFileDiff(input.sessionId, input.path);
     },
 
     async kimi_abort(input: AbortInput) {
+      requireOwnedSession(input.sessionId);
       await deps.kimi.abortSession(input.sessionId);
       return { sessionId: input.sessionId, aborted: true };
     },

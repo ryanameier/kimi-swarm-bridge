@@ -1836,6 +1836,173 @@ describe('tool handlers', () => {
     }
   });
 
+  it('rejects unowned sessions across session-oriented tools', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const kimi = makeKimi();
+
+      const handlers = createToolHandlers({
+        kimi,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const ownershipError = 'Existing session is not owned by this connector.';
+
+      await expect(
+        handlers.kimi_wait_until_idle({ sessionId: 'unowned-session' }),
+      ).rejects.toThrow(ownershipError);
+
+      await expect(
+        handlers.kimi_get_handoff({ sessionId: 'unowned-session' }),
+      ).rejects.toThrow(ownershipError);
+
+      await expect(
+        handlers.kimi_review_package({ sessionId: 'unowned-session' }),
+      ).rejects.toThrow(ownershipError);
+
+      await expect(
+        handlers.kimi_continue_task({
+          sessionId: 'unowned-session',
+          task: 'continue work',
+        }),
+      ).rejects.toThrow(ownershipError);
+
+      await expect(
+        handlers.kimi_get_diff({
+          sessionId: 'unowned-session',
+          path: 'src/a.ts',
+        }),
+      ).rejects.toThrow(ownershipError);
+
+      await expect(
+        handlers.kimi_abort({ sessionId: 'unowned-session' }),
+      ).rejects.toThrow(ownershipError);
+
+      expect(kimi.getRuntimeStatus).not.toHaveBeenCalled();
+      expect(kimi.listMessages).not.toHaveBeenCalled();
+      expect(kimi.getGitStatus).not.toHaveBeenCalled();
+      expect(kimi.getSession).not.toHaveBeenCalled();
+      expect(kimi.submitPrompt).not.toHaveBeenCalled();
+      expect(kimi.getFileDiff).not.toHaveBeenCalled();
+      expect(kimi.abortSession).not.toHaveBeenCalled();
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('allows session-oriented tools for an owned durable session', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'owned-session');
+
+      const kimi = makeKimi({
+        getRuntimeStatus: vi.fn(async () => 'idle'),
+      });
+
+      const handlers = createToolHandlers({
+        kimi,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_wait_until_idle({
+          sessionId: 'owned-session',
+          timeoutMs: 10,
+        }),
+      ).resolves.toEqual({ status: 'idle' });
+
+      expect(kimi.getRuntimeStatus).toHaveBeenCalledWith('owned-session');
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('rejects dedupe reuse of an unowned discovered session', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const createSession = vi.fn(async () => ({ id: 'new-session' }));
+      const submitPrompt = vi.fn(async () => ({
+        prompt_id: 'p1',
+        user_message_id: 'm1',
+        status: 'running',
+      }));
+
+      const kimi = makeKimi({
+        createSession,
+        submitPrompt,
+        listSessions: vi.fn(async () => ({
+          items: [
+            {
+              id: 'unowned-session',
+              title: 'Feature work',
+              status: 'running',
+              metadata: { cwd: '/repo' },
+              agent_config: {},
+              last_seq: 0,
+            },
+          ],
+        })),
+      });
+
+      const handlers = createToolHandlers({
+        kimi,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_delegate_and_wait({
+          cwd: '/repo',
+          task: 'implement feature',
+          acceptanceCriteria: ['tests pass'],
+          plan: ['edit code'],
+          dedupe: {
+            titleContains: 'Feature work',
+          },
+        }),
+      ).rejects.toThrow(
+        'Existing session is not owned by this connector.',
+      );
+
+      expect(createSession).not.toHaveBeenCalled();
+      expect(submitPrompt).not.toHaveBeenCalled();
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
   it('preflights before listing recent sessions', async () => {
     const preflight = makePreflight();
     const handlers = createToolHandlers({ kimi: makeKimi(), config: makeConfig(), preflight });
