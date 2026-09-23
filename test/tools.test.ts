@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createToolHandlers } from '../src/tools.js';
 import type { KimiClient } from '../src/kimi/client.js';
 import type { BridgeConfig } from '../src/config.js';
@@ -2050,6 +2053,85 @@ describe('tool handlers', () => {
       expect(submitPrompt).not.toHaveBeenCalled();
     } finally {
       jobRegistry.close();
+    }
+  });
+
+  it('recovers an owned durable job through a fresh handler after registry restart', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-tools-job-recovery-'));
+    const databasePath = join(dir, 'jobs.sqlite');
+
+    const owner = {
+      organizationId: 'org-a',
+      connectorInstanceId: 'connector-a',
+    };
+
+    let firstRegistry: JobRegistry | undefined;
+    let secondRegistry: JobRegistry | undefined;
+
+    try {
+      firstRegistry = new JobRegistry(databasePath);
+
+      const created = firstRegistry.createJob({
+        ...owner,
+        cwd: '/repo',
+        swarmMode: false,
+      });
+
+      firstRegistry.bindSession(
+        created.jobId,
+        'persisted-session',
+        'persisted-prompt',
+      );
+      firstRegistry.updateStatus(created.jobId, 'running');
+
+      firstRegistry.close();
+      firstRegistry = undefined;
+
+      secondRegistry = new JobRegistry(databasePath);
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi({
+          getRuntimeStatus: vi.fn(async () => 'idle'),
+        }),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry: secondRegistry,
+        jobOwner: owner,
+      });
+
+      const recent = await handlers.kimi_recent_jobs({
+        pageSize: 10,
+      });
+
+      expect(recent.available).toBe(true);
+      expect(recent.items).toHaveLength(1);
+      expect(recent.items[0]).toMatchObject({
+        jobId: created.jobId,
+        kimiSessionId: 'persisted-session',
+        promptId: 'persisted-prompt',
+        organizationId: owner.organizationId,
+        connectorInstanceId: owner.connectorInstanceId,
+        status: 'running',
+      });
+
+      const wait = await handlers.kimi_wait_until_idle({
+        sessionId: 'persisted-session',
+        timeoutMs: 0,
+      });
+
+      expect(wait).toEqual({ status: 'idle' });
+
+      expect(
+        secondRegistry.getOwnedJob(created.jobId, owner),
+      ).toMatchObject({
+        kimiSessionId: 'persisted-session',
+        promptId: 'persisted-prompt',
+        status: 'idle',
+      });
+    } finally {
+      firstRegistry?.close();
+      secondRegistry?.close();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 
