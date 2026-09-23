@@ -2233,6 +2233,62 @@ describe('tool handlers', () => {
     }
   });
 
+  it('reconciles durable status from Kimi during direct handoff recovery', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/repo',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'owned-session');
+      jobRegistry.updateStatus(job.jobId, 'running');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi({
+          listMessages: vi.fn(async () => [
+            { role: 'assistant', content: 'done' },
+          ]),
+          getGitStatus: vi.fn(async () => ({
+            entries: {},
+            additions: 0,
+            deletions: 0,
+          })),
+          getSession: vi.fn(async () => ({
+            id: 'owned-session',
+            title: 'test',
+            status: 'idle',
+            metadata: { cwd: '/repo' },
+            agent_config: {},
+            last_seq: 0,
+          })),
+        }),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const handoff = await handlers.kimi_get_handoff({
+        sessionId: 'owned-session',
+      });
+
+      expect(handoff.status).toBe('idle');
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner)?.status,
+      ).toBe('idle');
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
   it('caches handoff and review package results for an owned durable job', async () => {
     const jobRegistry = new JobRegistry(':memory:');
 

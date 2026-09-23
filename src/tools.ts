@@ -1026,13 +1026,15 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_get_handoff(input: GetHandoffInput) {
-      requireOwnedSession(input.sessionId);
+      const job = requireOwnedSession(input.sessionId);
 
       const [messages, gitStatus, session] = await Promise.all([
         deps.kimi.listMessages(input.sessionId),
         deps.kimi.getGitStatus(input.sessionId),
         deps.kimi.getSession(input.sessionId),
       ]);
+
+      syncJobStatusFromWait(job, session.status);
 
       const fileLister = deps.fileLister ?? defaultFileLister;
       const workingTreeFiles = await expandGitStatusEntries({
