@@ -1161,6 +1161,56 @@ describe('tool handlers', () => {
     expect(result.reviewPackage?.reviewChecklist.length).toBeGreaterThan(0);
   });
 
+  it('propagates durable jobId through delegate_and_wait', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi({
+          createSession: vi.fn(async () => ({ id: 's1' })),
+          submitPrompt: vi.fn(async () => ({
+            prompt_id: 'p1',
+            user_message_id: 'm1',
+            status: 'running',
+          })),
+          getRuntimeStatus: vi.fn(async () => 'idle'),
+        }),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const result = await handlers.kimi_delegate_and_wait({
+        cwd: '/repo',
+        task: 'implement feature',
+        acceptanceCriteria: ['tests pass'],
+        plan: ['edit code'],
+      });
+
+      expect(result.jobId).toMatch(/^job_[0-9a-f-]+$/);
+      expect(
+        jobRegistry.getOwnedJob(result.jobId!, owner),
+      ).toMatchObject({
+        jobId: result.jobId,
+        kimiSessionId: 's1',
+        promptId: 'p1',
+        status: 'idle',
+      });
+
+      expect(
+        jobRegistry.getOwnedJob(result.jobId!, owner)?.result,
+      ).toEqual(JSON.parse(JSON.stringify(result.reviewPackage)));
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
   it('returns session details without handoff when delegate_and_wait times out', async () => {
     const kimi = makeKimi({
       getRuntimeStatus: vi.fn(async () => 'running'),
@@ -1998,6 +2048,251 @@ describe('tool handlers', () => {
 
       expect(createSession).not.toHaveBeenCalled();
       expect(submitPrompt).not.toHaveBeenCalled();
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('synchronizes durable status from wait results but preserves status on timeout', async () => {
+    const statuses = [
+      'idle',
+      'awaiting_approval',
+      'awaiting_question',
+      'failed',
+      'aborted',
+    ] as const;
+
+    for (const status of statuses) {
+      const jobRegistry = new JobRegistry(':memory:');
+
+      try {
+        const owner = {
+          organizationId: 'org-a',
+          connectorInstanceId: 'connector-a',
+        };
+
+        const job = jobRegistry.createJob({
+          ...owner,
+          cwd: '/workspace',
+          swarmMode: false,
+        });
+
+        jobRegistry.bindSession(job.jobId, `session-${status}`);
+        jobRegistry.updateStatus(job.jobId, 'running');
+
+        const kimi = makeKimi({
+          getRuntimeStatus: vi.fn(async () => status),
+        });
+
+        const handlers = createToolHandlers({
+          kimi,
+          config: makeConfig(),
+          preflight: makePreflight(),
+          jobRegistry,
+          jobOwner: owner,
+        });
+
+        await handlers.kimi_wait_until_idle({
+          sessionId: `session-${status}`,
+          timeoutMs: 10,
+        });
+
+        expect(
+          jobRegistry.getOwnedJob(job.jobId, owner)?.status,
+        ).toBe(status);
+      } finally {
+        jobRegistry.close();
+      }
+    }
+
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'session-timeout');
+      jobRegistry.updateStatus(job.jobId, 'running');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi({
+          getRuntimeStatus: vi.fn(async () => 'running'),
+        }),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_wait_until_idle({
+          sessionId: 'session-timeout',
+          timeoutMs: 0,
+        }),
+      ).resolves.toEqual({ status: 'timeout' });
+
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner)?.status,
+      ).toBe('running');
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('marks an owned durable job running and updates prompt id after continuation', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'owned-session', 'old-prompt');
+      jobRegistry.updateStatus(job.jobId, 'idle');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi({
+          submitPrompt: vi.fn(async () => ({
+            prompt_id: 'new-prompt',
+            user_message_id: 'm2',
+            status: 'running',
+          })),
+        }),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await handlers.kimi_continue_task({
+        sessionId: 'owned-session',
+        task: 'continue work',
+      });
+
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner),
+      ).toMatchObject({
+        promptId: 'new-prompt',
+        status: 'running',
+      });
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('persists aborted state for an owned durable job', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'owned-session');
+      jobRegistry.updateStatus(job.jobId, 'running');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi(),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await handlers.kimi_abort({
+        sessionId: 'owned-session',
+      });
+
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner)?.status,
+      ).toBe('aborted');
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('caches handoff and review package results for an owned durable job', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const job = jobRegistry.createJob({
+        ...owner,
+        cwd: '/repo',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(job.jobId, 'owned-session');
+      jobRegistry.updateStatus(job.jobId, 'idle');
+
+      const kimi = makeKimi({
+        listMessages: vi.fn(async () => [
+          { role: 'assistant', content: 'done' },
+        ]),
+        getGitStatus: vi.fn(async () => ({
+          entries: {},
+          additions: 0,
+          deletions: 0,
+        })),
+        getSession: vi.fn(async () => ({
+          id: 'owned-session',
+          title: 'test',
+          status: 'idle',
+          metadata: { cwd: '/repo' },
+          agent_config: {},
+          last_seq: 0,
+        })),
+      });
+
+      const handlers = createToolHandlers({
+        kimi,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const handoff = await handlers.kimi_get_handoff({
+        sessionId: 'owned-session',
+      });
+
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner)?.result,
+      ).toEqual(JSON.parse(JSON.stringify(handoff)));
+
+      const reviewPackage = await handlers.kimi_review_package({
+        sessionId: 'owned-session',
+      });
+
+      expect(
+        jobRegistry.getOwnedJob(job.jobId, owner)?.result,
+      ).toEqual(JSON.parse(JSON.stringify(reviewPackage)));
     } finally {
       jobRegistry.close();
     }

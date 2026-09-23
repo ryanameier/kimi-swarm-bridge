@@ -22816,6 +22816,13 @@ function createToolHandlers(deps) {
     }
     return job;
   }
+  function syncJobStatusFromWait(job, status) {
+    const jobRegistry = deps.jobRegistry;
+    if (!job || !jobRegistry || status === "timeout") {
+      return;
+    }
+    jobRegistry.updateStatus(job.jobId, status);
+  }
   function buildReviewPackage(sessionId, handoff) {
     const diffsWithContent = handoff.diffs.filter((d) => d.diff.length > 0).length;
     const committed = handoff.committedChanges;
@@ -22870,6 +22877,7 @@ function createToolHandlers(deps) {
     };
     if (wait.status !== "idle") {
       const result = {
+        ...delegated.jobId ? { jobId: delegated.jobId } : {},
         sessionId: delegated.sessionId,
         promptId: delegated.promptId,
         submitStatus: delegated.status,
@@ -22891,7 +22899,11 @@ function createToolHandlers(deps) {
     }
     const handoff = await handlers.kimi_get_handoff({ sessionId: delegated.sessionId });
     const reviewPackage = buildReviewPackage(delegated.sessionId, handoff);
+    if (delegated.jobId && deps.jobRegistry) {
+      deps.jobRegistry.storeResult(delegated.jobId, reviewPackage);
+    }
     return {
+      ...delegated.jobId ? { jobId: delegated.jobId } : {},
       sessionId: delegated.sessionId,
       promptId: delegated.promptId,
       submitStatus: delegated.status,
@@ -23176,12 +23188,13 @@ function createToolHandlers(deps) {
       return buildDelegateAndWaitResult(delegated, wait);
     },
     async kimi_wait_until_idle(input) {
-      requireOwnedSession(input.sessionId);
+      const job = requireOwnedSession(input.sessionId);
       const result = await waitUntilIdle({
         sessionId: input.sessionId,
         timeoutMs: input.timeoutMs ?? deps.config.requestTimeoutMs,
         pollStatus: async () => ({ status: await deps.kimi.getRuntimeStatus(input.sessionId) })
       });
+      syncJobStatusFromWait(job, result.status);
       if (result.status === "awaiting_approval") {
         return {
           status: result.status,
@@ -23237,7 +23250,7 @@ function createToolHandlers(deps) {
         diffs: workingTreeDiffs.map((item) => ({ ...item, source: "working_tree" })),
         truncatedPaths: []
       };
-      return buildHandoff({
+      const handoff = buildHandoff({
         messages,
         waitStatus: session.status,
         serverToken: deps.config.serverToken,
@@ -23258,13 +23271,19 @@ function createToolHandlers(deps) {
         workingTreeChanges,
         committedDiagnostics: committedResult?.diagnostics
       });
+      return handoff;
     },
     async kimi_review_package(input) {
+      const job = requireOwnedSession(input.sessionId);
       const handoff = await handlers.kimi_get_handoff(input);
-      return buildReviewPackage(input.sessionId, handoff);
+      const reviewPackage = buildReviewPackage(input.sessionId, handoff);
+      if (job && deps.jobRegistry) {
+        deps.jobRegistry.storeResult(job.jobId, reviewPackage);
+      }
+      return reviewPackage;
     },
     async kimi_continue_task(input) {
-      requireOwnedSession(input.sessionId);
+      const job = requireOwnedSession(input.sessionId);
       const prompt = buildContinuationPrompt({
         sessionId: input.sessionId,
         task: input.task,
@@ -23280,6 +23299,14 @@ function createToolHandlers(deps) {
         planMode: false,
         swarmMode: input.swarmMode
       });
+      if (job && deps.jobRegistry) {
+        deps.jobRegistry.bindSession(
+          job.jobId,
+          input.sessionId,
+          result.prompt_id
+        );
+        deps.jobRegistry.updateStatus(job.jobId, "running");
+      }
       return { sessionId: input.sessionId, promptId: result.prompt_id, status: result.status, webUrl: buildWebUrl(deps.config.serverUrl, input.sessionId) };
     },
     async kimi_get_diff(input) {
@@ -23287,21 +23314,29 @@ function createToolHandlers(deps) {
       return deps.kimi.getFileDiff(input.sessionId, input.path);
     },
     async kimi_abort(input) {
-      requireOwnedSession(input.sessionId);
+      const job = requireOwnedSession(input.sessionId);
       await deps.kimi.abortSession(input.sessionId);
+      if (job && deps.jobRegistry) {
+        deps.jobRegistry.updateStatus(job.jobId, "aborted");
+      }
       return { sessionId: input.sessionId, aborted: true };
     }
   };
   async function getHandoffWithSwarmEvidence(input) {
+    const job = requireOwnedSession(input.sessionId);
     const handoff = await handlers.kimi_get_handoff(input);
     const swarmEvidence = await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
       sessionId: input.sessionId
     });
-    return {
+    const result = {
       ...handoff,
       swarmEvidence
     };
+    if (job && deps.jobRegistry) {
+      deps.jobRegistry.storeResult(job.jobId, result);
+    }
+    return result;
   }
   return {
     ...handlers,
