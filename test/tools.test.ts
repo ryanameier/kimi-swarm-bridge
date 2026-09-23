@@ -5,6 +5,7 @@ import type { BridgeConfig } from '../src/config.js';
 import type { KimiPreflight } from '../src/preflight.js';
 import type { GitInspector, GitBaseline } from '../src/git.js';
 import { InMemoryBaselineStore, type BaselineStore } from '../src/baseline-store.js';
+import { JobRegistry } from '../src/job-registry.js';
 
 function makeKimi(overrides: Record<string, unknown> = {}): KimiClient {
   return {
@@ -119,6 +120,233 @@ describe('tool handlers', () => {
 
     expect(result).toMatchObject({ sessionId: 's1', promptId: 'p1' });
     expect(result.webUrl).toBe('http://127.0.0.1:58627/sessions/s1');
+  });
+
+  it('creates and returns a durable job for a fresh delegation', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const handlers = createToolHandlers({
+        kimi: makeKimi(),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: {
+          organizationId: 'org-a',
+          connectorInstanceId: 'connector-a',
+        },
+      });
+
+      const result = await handlers.kimi_delegate_task({
+        cwd: '/repo',
+        task: 'implement durable jobs',
+        acceptanceCriteria: ['passes tests'],
+        plan: ['edit code'],
+        swarmMode: true,
+      });
+
+      expect(result.jobId).toMatch(/^job_[0-9a-f-]+$/);
+      expect(result.sessionId).toBe('s1');
+      expect(result.promptId).toBe('p1');
+
+      const job = jobRegistry.getOwnedJob(result.jobId!, {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      });
+
+      expect(job).toMatchObject({
+        jobId: result.jobId,
+        kimiSessionId: 's1',
+        promptId: 'p1',
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+        cwd: '/repo',
+        swarmMode: true,
+        status: 'running',
+      });
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('reuses the owned durable job when delegating into an existing session', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const created = jobRegistry.createJob({
+        ...owner,
+        cwd: '/repo',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(created.jobId, 'existing-session');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi(),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const result = await handlers.kimi_delegate_task({
+        cwd: '/repo',
+        sessionId: 'existing-session',
+        task: 'continue x',
+        acceptanceCriteria: ['passes tests'],
+        plan: ['edit code'],
+      });
+
+      expect(result.jobId).toBe(created.jobId);
+      expect(result.sessionId).toBe('existing-session');
+      expect(result.promptId).toBe('p1');
+
+      expect(jobRegistry.getOwnedJob(created.jobId, owner)).toMatchObject({
+        jobId: created.jobId,
+        kimiSessionId: 'existing-session',
+        promptId: 'p1',
+        status: 'running',
+      });
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('rejects an unowned existing session when durable ownership is configured', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const kimi = makeKimi();
+
+      const handlers = createToolHandlers({
+        kimi,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_delegate_task({
+          cwd: '/repo',
+          sessionId: 'unowned-session',
+          task: 'continue x',
+          acceptanceCriteria: ['passes tests'],
+          plan: ['edit code'],
+        }),
+      ).rejects.toThrow(
+        'Existing session is not owned by this connector.',
+      );
+
+      expect(kimi.submitPrompt).not.toHaveBeenCalled();
+      expect(jobRegistry.listOwnedJobs(owner)).toEqual([]);
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('marks a durable job failed when session creation fails', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const kimi = makeKimi({
+        createSession: vi.fn(async () => {
+          throw new Error('session creation failed');
+        }),
+      });
+
+      const handlers = createToolHandlers({
+        kimi: kimi as never,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_delegate_task({
+          cwd: '/repo',
+          task: 'implement x',
+          acceptanceCriteria: ['passes tests'],
+          plan: ['edit code'],
+        }),
+      ).rejects.toThrow('session creation failed');
+
+      const jobs = jobRegistry.listOwnedJobs(owner);
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        kimiSessionId: null,
+        status: 'failed',
+        error: {
+          message: 'session creation failed',
+        },
+      });
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('keeps the session bound and marks the durable job failed when prompt submission fails', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const kimi = makeKimi({
+        submitPrompt: vi.fn(async () => {
+          throw new Error('prompt submission failed');
+        }),
+      });
+
+      const handlers = createToolHandlers({
+        kimi: kimi as never,
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      await expect(
+        handlers.kimi_delegate_task({
+          cwd: '/repo',
+          task: 'implement x',
+          acceptanceCriteria: ['passes tests'],
+          plan: ['edit code'],
+        }),
+      ).rejects.toThrow('prompt submission failed');
+
+      const jobs = jobRegistry.listOwnedJobs(owner);
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        kimiSessionId: 's1',
+        status: 'failed',
+        error: {
+          message: 'prompt submission failed',
+        },
+      });
+    } finally {
+      jobRegistry.close();
+    }
   });
 
   it('url-encodes the session id in the webUrl', async () => {

@@ -21624,6 +21624,271 @@ function createDefaultBaselineStore(config2) {
   return new FileBaselineStore({ stateDir: config2.stateDir, serverUrl: config2.serverUrl });
 }
 
+// src/job-registry.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+function defaultJobDatabasePath() {
+  return process.env.KIMI_JOB_DB_PATH ?? "/data/kimi-swarm-bridge/jobs.sqlite";
+}
+function parseJson(value) {
+  if (value === null) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+function toJobRecord(row) {
+  return {
+    jobId: row.job_id,
+    kimiSessionId: row.kimi_session_id,
+    promptId: row.prompt_id,
+    organizationId: row.organization_id,
+    userId: row.user_id,
+    connectorInstanceId: row.connector_instance_id,
+    cwd: row.cwd,
+    swarmMode: row.swarm_mode === 1,
+    status: row.status,
+    result: parseJson(row.result_json),
+    error: parseJson(row.error_json),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+var JobRegistry = class {
+  databasePath;
+  db;
+  constructor(databasePath = defaultJobDatabasePath()) {
+    this.databasePath = databasePath;
+    if (databasePath !== ":memory:") {
+      mkdirSync(dirname(databasePath), { recursive: true });
+    }
+    this.db = new DatabaseSync(databasePath);
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA busy_timeout = 5000;
+
+      CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        kimi_session_id TEXT UNIQUE,
+        prompt_id TEXT,
+
+        organization_id TEXT NOT NULL,
+        user_id TEXT,
+        connector_instance_id TEXT NOT NULL,
+
+        cwd TEXT NOT NULL,
+        swarm_mode INTEGER NOT NULL DEFAULT 0
+          CHECK (swarm_mode IN (0, 1)),
+
+        status TEXT NOT NULL,
+        result_json TEXT,
+        error_json TEXT,
+
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS jobs_updated_at_idx
+        ON jobs(updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS jobs_owner_idx
+        ON jobs(
+          organization_id,
+          connector_instance_id,
+          updated_at DESC
+        );
+    `);
+  }
+  close() {
+    this.db.close();
+  }
+  createJob(input) {
+    const jobId = `job_${randomUUID2()}`;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    this.db.prepare(`
+        INSERT INTO jobs (
+          job_id,
+          kimi_session_id,
+          prompt_id,
+          organization_id,
+          user_id,
+          connector_instance_id,
+          cwd,
+          swarm_mode,
+          status,
+          result_json,
+          error_json,
+          created_at,
+          updated_at
+        )
+        VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+      `).run(
+      jobId,
+      input.organizationId,
+      input.userId ?? null,
+      input.connectorInstanceId,
+      input.cwd,
+      input.swarmMode ? 1 : 0,
+      "created",
+      now,
+      now
+    );
+    const job = this.getJob(jobId);
+    if (!job) {
+      throw new Error(`Failed to create durable job ${jobId}`);
+    }
+    return job;
+  }
+  getJob(jobId) {
+    const row = this.db.prepare(`
+        SELECT *
+        FROM jobs
+        WHERE job_id = ?
+      `).get(jobId);
+    return row ? toJobRecord(row) : void 0;
+  }
+  getOwnedJob(jobId, owner) {
+    const row = this.db.prepare(`
+        SELECT *
+        FROM jobs
+        WHERE job_id = ?
+          AND organization_id = ?
+          AND connector_instance_id = ?
+      `).get(
+      jobId,
+      owner.organizationId,
+      owner.connectorInstanceId
+    );
+    return row ? toJobRecord(row) : void 0;
+  }
+  getOwnedJobBySession(kimiSessionId, owner) {
+    const row = this.db.prepare(`
+        SELECT *
+        FROM jobs
+        WHERE kimi_session_id = ?
+          AND organization_id = ?
+          AND connector_instance_id = ?
+      `).get(
+      kimiSessionId,
+      owner.organizationId,
+      owner.connectorInstanceId
+    );
+    return row ? toJobRecord(row) : void 0;
+  }
+  listOwnedJobs(owner, options = {}) {
+    const limit = Math.max(
+      1,
+      Math.min(Math.trunc(options.limit ?? 20), 100)
+    );
+    const rows = options.status ? this.db.prepare(`
+            SELECT *
+            FROM jobs
+            WHERE organization_id = ?
+              AND connector_instance_id = ?
+              AND status = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+          `).all(
+      owner.organizationId,
+      owner.connectorInstanceId,
+      options.status,
+      limit
+    ) : this.db.prepare(`
+            SELECT *
+            FROM jobs
+            WHERE organization_id = ?
+              AND connector_instance_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+          `).all(
+      owner.organizationId,
+      owner.connectorInstanceId,
+      limit
+    );
+    return rows.map(toJobRecord);
+  }
+  bindSession(jobId, kimiSessionId, promptId) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const result = this.db.prepare(`
+        UPDATE jobs
+        SET kimi_session_id = ?,
+            prompt_id = ?,
+            updated_at = ?
+        WHERE job_id = ?
+      `).run(
+      kimiSessionId,
+      promptId ?? null,
+      now,
+      jobId
+    );
+    if (Number(result.changes) !== 1) {
+      throw new Error(`Unknown job: ${jobId}`);
+    }
+    return this.getRequiredJob(jobId);
+  }
+  updateStatus(jobId, status) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const result = this.db.prepare(`
+        UPDATE jobs
+        SET status = ?,
+            updated_at = ?
+        WHERE job_id = ?
+      `).run(status, now, jobId);
+    if (Number(result.changes) !== 1) {
+      throw new Error(`Unknown job: ${jobId}`);
+    }
+    return this.getRequiredJob(jobId);
+  }
+  storeResult(jobId, resultValue) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const result = this.db.prepare(`
+        UPDATE jobs
+        SET result_json = ?,
+            error_json = NULL,
+            updated_at = ?
+        WHERE job_id = ?
+      `).run(
+      JSON.stringify(resultValue),
+      now,
+      jobId
+    );
+    if (Number(result.changes) !== 1) {
+      throw new Error(`Unknown job: ${jobId}`);
+    }
+    return this.getRequiredJob(jobId);
+  }
+  storeError(jobId, errorValue) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const result = this.db.prepare(`
+        UPDATE jobs
+        SET error_json = ?,
+            updated_at = ?
+        WHERE job_id = ?
+      `).run(
+      JSON.stringify(errorValue),
+      now,
+      jobId
+    );
+    if (Number(result.changes) !== 1) {
+      throw new Error(`Unknown job: ${jobId}`);
+    }
+    return this.getRequiredJob(jobId);
+  }
+  getRequiredJob(jobId) {
+    const job = this.getJob(jobId);
+    if (!job) {
+      throw new Error(`Unknown job: ${jobId}`);
+    }
+    return job;
+  }
+};
+
 // src/config.ts
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22653,57 +22918,117 @@ function createToolHandlers(deps) {
       return findRecentSessionByTitle(deps, input);
     },
     async kimi_delegate_task(input) {
+      const jobRegistry = deps.jobRegistry;
+      const jobOwner = deps.jobOwner;
+      let job;
+      if (jobRegistry && jobOwner) {
+        if (input.sessionId) {
+          job = jobRegistry.getOwnedJobBySession(
+            input.sessionId,
+            jobOwner
+          );
+          if (!job) {
+            throw new Error(
+              "Existing session is not owned by this connector."
+            );
+          }
+        } else {
+          job = jobRegistry.createJob({
+            ...jobOwner,
+            cwd: input.cwd,
+            swarmMode: input.swarmMode ?? false
+          });
+          jobRegistry.updateStatus(job.jobId, "creating_session");
+        }
+      }
+      const persistFailure = (error2) => {
+        if (!job || !jobRegistry) {
+          return;
+        }
+        const rawError = error2 instanceof Error ? error2.message : String(error2);
+        const safeError = sanitizeDiagnosticText(
+          rawError,
+          deps.config.serverToken
+        );
+        try {
+          jobRegistry.storeError(job.jobId, {
+            message: safeError
+          });
+          jobRegistry.updateStatus(job.jobId, "failed");
+        } catch {
+        }
+      };
       let session;
       let baselineToStore;
       let baselineStored;
       let baselineStoreError;
-      if (input.sessionId) {
-        session = { id: input.sessionId };
-      } else {
-        let metadata;
-        try {
-          const baselineResult = await gitInspector.captureBaseline(input.cwd);
-          if (baselineResult.available) {
-            metadata = baselineMetadata(baselineResult.baseline);
-            baselineToStore = baselineResult.baseline;
-          }
-        } catch {
-        }
-        session = await deps.kimi.createSession({ cwd: input.cwd, title: input.task.slice(0, 80), metadata });
-        if (baselineToStore) {
+      try {
+        if (input.sessionId) {
+          session = { id: input.sessionId };
+        } else {
+          let metadata;
           try {
-            await baselineStore.save(session.id, baselineToStore);
-            baselineStored = true;
-          } catch (err) {
-            baselineStored = false;
-            const rawError = err instanceof Error ? err.message : String(err);
-            baselineStoreError = sanitizeDiagnosticText(rawError, deps.config.serverToken);
+            const baselineResult = await gitInspector.captureBaseline(input.cwd);
+            if (baselineResult.available) {
+              metadata = baselineMetadata(baselineResult.baseline);
+              baselineToStore = baselineResult.baseline;
+            }
+          } catch {
+          }
+          session = await deps.kimi.createSession({
+            cwd: input.cwd,
+            title: input.task.slice(0, 80),
+            metadata
+          });
+          if (job) {
+            jobRegistry?.bindSession(job.jobId, session.id);
+          }
+          if (baselineToStore) {
+            try {
+              await baselineStore.save(session.id, baselineToStore);
+              baselineStored = true;
+            } catch (err) {
+              baselineStored = false;
+              const rawError = err instanceof Error ? err.message : String(err);
+              baselineStoreError = sanitizeDiagnosticText(
+                rawError,
+                deps.config.serverToken
+              );
+            }
           }
         }
+        const prompt = buildDelegationPrompt({
+          task: input.task,
+          acceptanceCriteria: input.acceptanceCriteria,
+          plan: input.plan,
+          swarmSuggestions: input.swarmMode ? input.plan : void 0
+        });
+        const result = await deps.kimi.submitPrompt(session.id, {
+          content: prompt,
+          model: await resolveModel(deps.kimi, input.model, deps.config),
+          thinking: input.thinking ?? deps.config.defaultThinking,
+          permissionMode: deps.config.defaultPermissionMode,
+          planMode: false,
+          swarmMode: input.swarmMode
+        });
+        if (job) {
+          jobRegistry?.bindSession(job.jobId, session.id, result.prompt_id);
+          jobRegistry?.updateStatus(job.jobId, "running");
+        }
+        return {
+          ...job ? { jobId: job.jobId } : {},
+          sessionId: session.id,
+          promptId: result.prompt_id,
+          status: result.status,
+          webUrl: buildWebUrl(deps.config.serverUrl, session.id),
+          ...baselineStored !== void 0 ? { baselineStored } : {},
+          ...baselineStoreError !== void 0 ? { baselineStoreError } : {},
+          ...input.swarmMode !== void 0 ? { swarmModeActivated: input.swarmMode } : {}
+        };
+      } catch (error2) {
+        persistFailure(error2);
+        throw error2;
       }
-      const prompt = buildDelegationPrompt({
-        task: input.task,
-        acceptanceCriteria: input.acceptanceCriteria,
-        plan: input.plan,
-        swarmSuggestions: input.swarmMode ? input.plan : void 0
-      });
-      const result = await deps.kimi.submitPrompt(session.id, {
-        content: prompt,
-        model: await resolveModel(deps.kimi, input.model, deps.config),
-        thinking: input.thinking ?? deps.config.defaultThinking,
-        permissionMode: deps.config.defaultPermissionMode,
-        planMode: false,
-        swarmMode: input.swarmMode
-      });
-      return {
-        sessionId: session.id,
-        promptId: result.prompt_id,
-        status: result.status,
-        webUrl: buildWebUrl(deps.config.serverUrl, session.id),
-        ...baselineStored !== void 0 ? { baselineStored } : {},
-        ...baselineStoreError !== void 0 ? { baselineStoreError } : {},
-        ...input.swarmMode !== void 0 ? { swarmModeActivated: input.swarmMode } : {}
-      };
     },
     async kimi_delegate_and_wait(input) {
       const supportedDedupeReuseStatuses = ["running", "idle", "awaiting_approval", "awaiting_question"];
@@ -23273,7 +23598,21 @@ function createMcpServer() {
   const preflight = new KimiPreflight(config2, http);
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config2);
-  const handlers = createToolHandlers({ kimi, config: config2, preflight, baselineStore });
+  const organizationId = process.env.KIMI_ORGANIZATION_ID?.trim();
+  const connectorInstanceId = process.env.KIMI_CONNECTOR_INSTANCE_ID?.trim();
+  const jobRegistry = organizationId && connectorInstanceId ? new JobRegistry() : void 0;
+  const jobOwner = organizationId && connectorInstanceId ? {
+    organizationId,
+    connectorInstanceId
+  } : void 0;
+  const handlers = createToolHandlers({
+    kimi,
+    config: config2,
+    preflight,
+    baselineStore,
+    jobRegistry,
+    jobOwner
+  });
   const server = new McpServer({ name: "kimi-swarm-bridge", version: "0.3.3" });
   server.registerTool(
     "kimi_delegate_task",

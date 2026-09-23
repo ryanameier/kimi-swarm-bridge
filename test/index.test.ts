@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { KimiApiError, KimiNetworkError } from '../src/errors.js';
-import { isDirectExecution, runToolHandler } from '../src/index.js';
+import { createMcpServer, isDirectExecution, runToolHandler } from '../src/index.js';
 
 describe('isDirectExecution', () => {
   it('returns true when the module URL matches the argv entry path and basename is index.js', () => {
@@ -74,6 +76,41 @@ describe('runToolHandler', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.error).toBe('boom');
     expect(parsed.code).toBe('UNKNOWN');
+  });
+});
+
+describe('createMcpServer durable job wiring', () => {
+  it('creates the durable jobs database when ownership is configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kimi-index-jobs-test-'));
+    const databasePath = join(dir, 'jobs.sqlite');
+
+    vi.stubEnv('KIMI_JOB_DB_PATH', databasePath);
+    vi.stubEnv('KIMI_ORGANIZATION_ID', 'org-test');
+    vi.stubEnv('KIMI_CONNECTOR_INSTANCE_ID', 'connector-test');
+
+    try {
+      void createMcpServer();
+
+      const db = new DatabaseSync(databasePath);
+
+      try {
+        const row = db
+          .prepare(`
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = 'jobs'
+          `)
+          .get() as { name: string } | undefined;
+
+        expect(row?.name).toBe('jobs');
+      } finally {
+        db.close();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

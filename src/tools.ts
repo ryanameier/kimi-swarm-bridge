@@ -11,6 +11,7 @@ import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } from './git.js';
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
+import type { JobOwner, JobRecord, JobRegistry } from './job-registry.js';
 import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 
 export interface FileLister {
@@ -24,6 +25,8 @@ export interface ToolDeps {
   fileLister?: FileLister;
   gitInspector?: GitInspector;
   baselineStore?: BaselineStore;
+  jobRegistry?: JobRegistry;
+  jobOwner?: JobOwner;
 }
 
 export interface DelegateTaskInput {
@@ -181,7 +184,7 @@ export interface ReviewPackageResult {
 }
 
 export interface ToolHandlers {
-  kimi_delegate_task: (input: DelegateTaskInput) => Promise<{ sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean }>;
+  kimi_delegate_task: (input: DelegateTaskInput) => Promise<{ jobId?: string; sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean }>;
   kimi_delegate_and_wait: (input: DelegateAndWaitInput) => Promise<DelegateAndWaitResult>;
   kimi_wait_until_idle: (input: WaitUntilIdleInput) => Promise<WaitUntilIdleResult>;
   kimi_get_handoff: (input: GetHandoffInput) => Promise<KimiHandoff>;
@@ -665,59 +668,142 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     },
 
     async kimi_delegate_task(input: DelegateTaskInput) {
+      const jobRegistry = deps.jobRegistry;
+      const jobOwner = deps.jobOwner;
+
+      let job: JobRecord | undefined;
+
+      if (jobRegistry && jobOwner) {
+        if (input.sessionId) {
+          job = jobRegistry.getOwnedJobBySession(
+            input.sessionId,
+            jobOwner,
+          );
+
+          if (!job) {
+            throw new Error(
+              'Existing session is not owned by this connector.',
+            );
+          }
+        } else {
+          job = jobRegistry.createJob({
+            ...jobOwner,
+            cwd: input.cwd,
+            swarmMode: input.swarmMode ?? false,
+          });
+
+          jobRegistry.updateStatus(job.jobId, 'creating_session');
+        }
+      }
+
+      const persistFailure = (error: unknown): void => {
+        if (!job || !jobRegistry) {
+          return;
+        }
+
+        const rawError = error instanceof Error
+          ? error.message
+          : String(error);
+
+        const safeError = sanitizeDiagnosticText(
+          rawError,
+          deps.config.serverToken,
+        );
+
+        try {
+          jobRegistry.storeError(job.jobId, {
+            message: safeError,
+          });
+          jobRegistry.updateStatus(job.jobId, 'failed');
+        } catch {
+          // Preserve the original delegation error if registry persistence fails.
+        }
+      };
+
       let session: { id: string };
       let baselineToStore: GitBaseline | undefined;
       let baselineStored: boolean | undefined;
       let baselineStoreError: string | undefined;
 
-      if (input.sessionId) {
-        session = { id: input.sessionId };
-      } else {
-        let metadata: Record<string, unknown> | undefined;
-        try {
-          const baselineResult = await gitInspector.captureBaseline(input.cwd);
-          if (baselineResult.available) {
-            metadata = baselineMetadata(baselineResult.baseline);
-            baselineToStore = baselineResult.baseline;
-          }
-        } catch {
-          // Failure to inspect Git must not prevent delegation.
-        }
-        session = await deps.kimi.createSession({ cwd: input.cwd, title: input.task.slice(0, 80), metadata });
-        if (baselineToStore) {
+      try {
+        if (input.sessionId) {
+          session = { id: input.sessionId };
+        } else {
+          let metadata: Record<string, unknown> | undefined;
+
           try {
-            await baselineStore.save(session.id, baselineToStore);
-            baselineStored = true;
-          } catch (err) {
-            baselineStored = false;
-            const rawError = err instanceof Error ? err.message : String(err);
-            baselineStoreError = sanitizeDiagnosticText(rawError, deps.config.serverToken);
+            const baselineResult = await gitInspector.captureBaseline(input.cwd);
+
+            if (baselineResult.available) {
+              metadata = baselineMetadata(baselineResult.baseline);
+              baselineToStore = baselineResult.baseline;
+            }
+          } catch {
+            // Failure to inspect Git must not prevent delegation.
+          }
+
+          session = await deps.kimi.createSession({
+            cwd: input.cwd,
+            title: input.task.slice(0, 80),
+            metadata,
+          });
+
+          if (job) {
+            jobRegistry?.bindSession(job.jobId, session.id);
+          }
+
+          if (baselineToStore) {
+            try {
+              await baselineStore.save(session.id, baselineToStore);
+              baselineStored = true;
+            } catch (err) {
+              baselineStored = false;
+              const rawError = err instanceof Error ? err.message : String(err);
+              baselineStoreError = sanitizeDiagnosticText(
+                rawError,
+                deps.config.serverToken,
+              );
+            }
           }
         }
+
+        const prompt = buildDelegationPrompt({
+          task: input.task,
+          acceptanceCriteria: input.acceptanceCriteria,
+          plan: input.plan,
+          swarmSuggestions: input.swarmMode ? input.plan : undefined,
+        });
+
+        const result = await deps.kimi.submitPrompt(session.id, {
+          content: prompt,
+          model: await resolveModel(deps.kimi, input.model, deps.config),
+          thinking: input.thinking ?? deps.config.defaultThinking,
+          permissionMode: deps.config.defaultPermissionMode,
+          planMode: false,
+          swarmMode: input.swarmMode,
+        });
+
+        if (job) {
+          jobRegistry?.bindSession(job.jobId, session.id, result.prompt_id);
+          jobRegistry?.updateStatus(job.jobId, 'running');
+        }
+
+        return {
+          ...(job ? { jobId: job.jobId } : {}),
+          sessionId: session.id,
+          promptId: result.prompt_id,
+          status: result.status,
+          webUrl: buildWebUrl(deps.config.serverUrl, session.id),
+          ...(baselineStored !== undefined ? { baselineStored } : {}),
+          ...(baselineStoreError !== undefined ? { baselineStoreError } : {}),
+          ...(input.swarmMode !== undefined
+            ? { swarmModeActivated: input.swarmMode }
+            : {}),
+        };
+      } catch (error) {
+        persistFailure(error);
+        throw error;
       }
-      const prompt = buildDelegationPrompt({
-        task: input.task,
-        acceptanceCriteria: input.acceptanceCriteria,
-        plan: input.plan,
-        swarmSuggestions: input.swarmMode ? input.plan : undefined,
-      });
-      const result = await deps.kimi.submitPrompt(session.id, {
-        content: prompt,
-        model: await resolveModel(deps.kimi, input.model, deps.config),
-        thinking: input.thinking ?? deps.config.defaultThinking,
-        permissionMode: deps.config.defaultPermissionMode,
-        planMode: false,
-        swarmMode: input.swarmMode,
-      });
-      return {
-        sessionId: session.id,
-        promptId: result.prompt_id,
-        status: result.status,
-        webUrl: buildWebUrl(deps.config.serverUrl, session.id),
-        ...(baselineStored !== undefined ? { baselineStored } : {}),
-        ...(baselineStoreError !== undefined ? { baselineStoreError } : {}),
-        ...(input.swarmMode !== undefined ? { swarmModeActivated: input.swarmMode } : {}),
-      };
     },
 
     async kimi_delegate_and_wait(input: DelegateAndWaitInput) {

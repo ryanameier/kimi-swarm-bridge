@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { TOOL_METADATA } from './tool-catalog.js';
 import { createDefaultBaselineStore } from './baseline-store.js';
+import { JobRegistry } from './job-registry.js';
 import { loadBridgeConfig } from './config.js';
 import { KimiApiError, KimiNetworkError } from './errors.js';
 import { KimiHttpClient } from './kimi/http.js';
@@ -82,7 +83,29 @@ export function createMcpServer(): McpServer {
   const preflight = new KimiPreflight(config, http);
   const kimi = new KimiClient(http);
   const baselineStore = createDefaultBaselineStore(config);
-  const handlers = createToolHandlers({ kimi, config, preflight, baselineStore });
+
+  const organizationId = process.env.KIMI_ORGANIZATION_ID?.trim();
+  const connectorInstanceId = process.env.KIMI_CONNECTOR_INSTANCE_ID?.trim();
+
+  const jobRegistry = organizationId && connectorInstanceId
+    ? new JobRegistry()
+    : undefined;
+
+  const jobOwner = organizationId && connectorInstanceId
+    ? {
+        organizationId,
+        connectorInstanceId,
+      }
+    : undefined;
+
+  const handlers = createToolHandlers({
+    kimi,
+    config,
+    preflight,
+    baselineStore,
+    jobRegistry,
+    jobOwner,
+  });
   const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.3' });
 
   server.registerTool(
