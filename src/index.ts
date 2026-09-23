@@ -238,6 +238,27 @@ export function createMcpServer(): McpServer {
   );
 
   server.registerTool(
+    'kimi_recent_jobs',
+    {
+      ...TOOL_METADATA.kimi_recent_jobs,
+      inputSchema: {
+        pageSize: z.number().optional().describe('Maximum number of connector-owned durable jobs to return. Defaults to 10 and is capped by the registry at 100.'),
+        status: z.enum([
+          'created',
+          'creating_session',
+          'running',
+          'idle',
+          'awaiting_approval',
+          'awaiting_question',
+          'failed',
+          'aborted',
+        ]).optional().describe('Optional durable job-status filter.'),
+      },
+    },
+    async (input) => runToolHandler(() => handlers.kimi_recent_jobs(input)),
+  );
+
+  server.registerTool(
     'kimi_recent_sessions',
     {
       ...TOOL_METADATA.kimi_recent_sessions,

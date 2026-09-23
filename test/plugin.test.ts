@@ -74,7 +74,9 @@ describe('Codex plugin package', () => {
         'kimi_delegate_task',
         'kimi_delegate_and_wait',
         'kimi_review_package',
+        'kimi_recent_jobs',
       ]));
+      expect(toolNames).toHaveLength(12);
     } finally {
       await client.close();
       rmSync(temporaryRoot, { recursive: true, force: true });

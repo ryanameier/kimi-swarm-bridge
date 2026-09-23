@@ -166,7 +166,8 @@ describe('HTTP MCP entrypoint', () => {
     const { tools } = await first.client.listTools();
 
     expect(tools.map((tool) => tool.name)).toContain('kimi_bridge_status');
-    expect(tools).toHaveLength(11);
+    expect(tools.map((tool) => tool.name)).toContain('kimi_recent_jobs');
+    expect(tools).toHaveLength(12);
 
     const statusResult = await first.client.callTool({
       name: 'kimi_bridge_status',

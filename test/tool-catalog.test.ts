@@ -9,6 +9,7 @@ const READ_ONLY_TOOLS = [
   'kimi_get_diff',
   'kimi_bridge_status',
   'kimi_recent_sessions',
+  'kimi_recent_jobs',
   'kimi_find_recent_session',
 ] as const;
 
@@ -20,7 +21,7 @@ const MUTATING_TOOLS = [
 ] as const;
 
 describe('MCP tool catalog quality metadata', () => {
-  it('defines metadata for all 11 public tools', () => {
+  it('defines metadata for all 12 public tools', () => {
     expect(Object.keys(TOOL_METADATA).sort()).toEqual([
       'kimi_abort',
       'kimi_bridge_status',
@@ -30,6 +31,7 @@ describe('MCP tool catalog quality metadata', () => {
       'kimi_find_recent_session',
       'kimi_get_diff',
       'kimi_get_handoff',
+      'kimi_recent_jobs',
       'kimi_recent_sessions',
       'kimi_review_package',
       'kimi_wait_until_idle',
@@ -65,7 +67,7 @@ describe('MCP tool catalog quality metadata', () => {
 
   it('describes tool parameters in the registered input schemas', () => {
     const source = readFileSync('src/index.ts', 'utf8');
-    expect((source.match(/server\.registerTool\(/g) ?? []).length).toBe(11);
+    expect((source.match(/server\.registerTool\(/g) ?? []).length).toBe(12);
     expect((source.match(/\.describe\(/g) ?? []).length).toBeGreaterThanOrEqual(30);
     expect(source).toContain('structured swarmEvidence');
     expect(source).toContain('local desktop paths are not automatically available');

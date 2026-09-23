@@ -11,7 +11,7 @@ import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } from './git.js';
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
-import type { JobOwner, JobRecord, JobRegistry } from './job-registry.js';
+import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry.js';
 import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 
 export interface FileLister {
@@ -93,6 +93,17 @@ export interface RecentSessionsInput {
   status?: string;
   includeArchive?: boolean;
   excludeEmpty?: boolean;
+}
+
+export interface RecentJobsInput {
+  pageSize?: number;
+  status?: JobStatus;
+}
+
+export interface RecentJobsResult {
+  available: boolean;
+  items: JobRecord[];
+  unavailableReason?: 'durable_jobs_not_configured';
 }
 
 export interface FindRecentSessionInput {
@@ -194,6 +205,7 @@ export interface ToolHandlers {
   kimi_abort: (input: AbortInput) => Promise<{ sessionId: string; aborted: true }>;
   kimi_bridge_status: () => Promise<BridgeStatus>;
   kimi_recent_sessions: (input: RecentSessionsInput) => Promise<RecentSessionsResult>;
+  kimi_recent_jobs: (input: RecentJobsInput) => Promise<RecentJobsResult>;
   kimi_find_recent_session: (input: FindRecentSessionInput) => Promise<FindRecentSessionResult>;
 }
 
@@ -649,6 +661,27 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           diagnostics: [...status.diagnostics, 'meta unavailable'],
         };
       }
+    },
+
+    async kimi_recent_jobs(input: RecentJobsInput) {
+      const jobRegistry = deps.jobRegistry;
+      const jobOwner = deps.jobOwner;
+
+      if (!jobRegistry || !jobOwner) {
+        return {
+          available: false,
+          items: [],
+          unavailableReason: 'durable_jobs_not_configured',
+        };
+      }
+
+      return {
+        available: true,
+        items: jobRegistry.listOwnedJobs(jobOwner, {
+          limit: input.pageSize ?? 10,
+          status: input.status,
+        }),
+      };
     },
 
     async kimi_recent_sessions(input: RecentSessionsInput) {

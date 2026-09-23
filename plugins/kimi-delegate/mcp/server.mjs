@@ -21118,7 +21118,7 @@ var MUTATING = {
 var TOOL_METADATA = {
   kimi_delegate_task: {
     title: "Delegate Kimi Task",
-    description: "Start or submit a Kimi task and return immediately with session and prompt identifiers plus current status. Use this for asynchronous workflows that will later call kimi_wait_until_idle or kimi_get_handoff; use kimi_delegate_and_wait when the result is needed in one call. The delegated task may run commands and modify files in cwd. With swarmMode=true the bridge verifies Kimi swarm mode before submission, but activation alone does not prove native AgentSwarm execution.",
+    description: "Start or submit a Kimi task and return immediately with a durable job identifier when configured, plus session and prompt identifiers and current status. Use this for asynchronous workflows that will later call kimi_wait_until_idle or kimi_get_handoff; use kimi_delegate_and_wait when the result is needed in one call. The delegated task may run commands and modify files in cwd. With swarmMode=true the bridge verifies Kimi swarm mode before submission, but activation alone does not prove native AgentSwarm execution.",
     annotations: MUTATING
   },
   kimi_delegate_and_wait: {
@@ -21164,6 +21164,11 @@ var TOOL_METADATA = {
   kimi_recent_sessions: {
     title: "List Recent Kimi Sessions",
     description: "List recent Kimi sessions with identifiers, statuses, titles, web links, and workspace metadata. Use to discover an existing job before waiting, reviewing, continuing, aborting, or creating a possible duplicate; use kimi_find_recent_session when a title fragment is known. This is read-only and only queries Kimi session metadata.",
+    annotations: READ_ONLY
+  },
+  kimi_recent_jobs: {
+    title: "List Recent Durable Jobs",
+    description: "List recent connector-owned durable jobs from the persistent bridge registry, including job IDs, bound Kimi session and prompt IDs, status, workspace, swarm mode, cached result or error data, and timestamps. Use this for interruption or client-timeout recovery before falling back to raw Kimi session discovery. This is read-only and does not contact Kimi or modify session or workspace state.",
     annotations: READ_ONLY
   },
   kimi_find_recent_session: {
@@ -22903,6 +22908,24 @@ function createToolHandlers(deps) {
         };
       }
     },
+    async kimi_recent_jobs(input) {
+      const jobRegistry = deps.jobRegistry;
+      const jobOwner = deps.jobOwner;
+      if (!jobRegistry || !jobOwner) {
+        return {
+          available: false,
+          items: [],
+          unavailableReason: "durable_jobs_not_configured"
+        };
+      }
+      return {
+        available: true,
+        items: jobRegistry.listOwnedJobs(jobOwner, {
+          limit: input.pageSize ?? 10,
+          status: input.status
+        })
+      };
+    },
     async kimi_recent_sessions(input) {
       const result = await deps.kimi.listSessions({
         pageSize: input.pageSize ?? 10,
@@ -23733,6 +23756,26 @@ function createMcpServer() {
       ...TOOL_METADATA.kimi_bridge_status
     },
     async () => runToolHandler(() => handlers.kimi_bridge_status())
+  );
+  server.registerTool(
+    "kimi_recent_jobs",
+    {
+      ...TOOL_METADATA.kimi_recent_jobs,
+      inputSchema: {
+        pageSize: external_exports.number().optional().describe("Maximum number of connector-owned durable jobs to return. Defaults to 10 and is capped by the registry at 100."),
+        status: external_exports.enum([
+          "created",
+          "creating_session",
+          "running",
+          "idle",
+          "awaiting_approval",
+          "awaiting_question",
+          "failed",
+          "aborted"
+        ]).optional().describe("Optional durable job-status filter.")
+      }
+    },
+    async (input) => runToolHandler(() => handlers.kimi_recent_jobs(input))
   );
   server.registerTool(
     "kimi_recent_sessions",

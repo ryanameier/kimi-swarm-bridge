@@ -1717,6 +1717,125 @@ describe('tool handlers', () => {
     expect(result.baselineStored).toBe(true);
   });
 
+  it('reports durable jobs unavailable when the registry is not configured', async () => {
+    const preflight = makePreflight();
+
+    const handlers = createToolHandlers({
+      kimi: makeKimi(),
+      config: makeConfig(),
+      preflight,
+    });
+
+    await expect(
+      handlers.kimi_recent_jobs({}),
+    ).resolves.toEqual({
+      available: false,
+      items: [],
+      unavailableReason: 'durable_jobs_not_configured',
+    });
+
+    expect(preflight.ensureReady).not.toHaveBeenCalled();
+  });
+
+  it('lists only durable jobs owned by the configured connector', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const first = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.bindSession(first.jobId, 'session-owned');
+      jobRegistry.updateStatus(first.jobId, 'running');
+
+      jobRegistry.createJob({
+        organizationId: 'org-b',
+        connectorInstanceId: 'connector-b',
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      const preflight = makePreflight();
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi(),
+        config: makeConfig(),
+        preflight,
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const result = await handlers.kimi_recent_jobs({});
+
+      expect(result.available).toBe(true);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
+        jobId: first.jobId,
+        kimiSessionId: 'session-owned',
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+        status: 'running',
+      });
+
+      expect(preflight.ensureReady).not.toHaveBeenCalled();
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
+  it('filters recent durable jobs by status', async () => {
+    const jobRegistry = new JobRegistry(':memory:');
+
+    try {
+      const owner = {
+        organizationId: 'org-a',
+        connectorInstanceId: 'connector-a',
+      };
+
+      const running = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: true,
+      });
+
+      const failed = jobRegistry.createJob({
+        ...owner,
+        cwd: '/workspace',
+        swarmMode: false,
+      });
+
+      jobRegistry.updateStatus(running.jobId, 'running');
+      jobRegistry.updateStatus(failed.jobId, 'failed');
+
+      const handlers = createToolHandlers({
+        kimi: makeKimi(),
+        config: makeConfig(),
+        preflight: makePreflight(),
+        jobRegistry,
+        jobOwner: owner,
+      });
+
+      const result = await handlers.kimi_recent_jobs({
+        status: 'failed',
+        pageSize: 10,
+      });
+
+      expect(result.available).toBe(true);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.jobId).toBe(failed.jobId);
+      expect(result.items[0]?.status).toBe('failed');
+    } finally {
+      jobRegistry.close();
+    }
+  });
+
   it('preflights before listing recent sessions', async () => {
     const preflight = makePreflight();
     const handlers = createToolHandlers({ kimi: makeKimi(), config: makeConfig(), preflight });

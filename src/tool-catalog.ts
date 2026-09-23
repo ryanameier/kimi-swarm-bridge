@@ -23,7 +23,7 @@ const MUTATING = {
 export const TOOL_METADATA = {
   kimi_delegate_task: {
     title: 'Delegate Kimi Task',
-    description: 'Start or submit a Kimi task and return immediately with session and prompt identifiers plus current status. Use this for asynchronous workflows that will later call kimi_wait_until_idle or kimi_get_handoff; use kimi_delegate_and_wait when the result is needed in one call. The delegated task may run commands and modify files in cwd. With swarmMode=true the bridge verifies Kimi swarm mode before submission, but activation alone does not prove native AgentSwarm execution.',
+    description: 'Start or submit a Kimi task and return immediately with a durable job identifier when configured, plus session and prompt identifiers and current status. Use this for asynchronous workflows that will later call kimi_wait_until_idle or kimi_get_handoff; use kimi_delegate_and_wait when the result is needed in one call. The delegated task may run commands and modify files in cwd. With swarmMode=true the bridge verifies Kimi swarm mode before submission, but activation alone does not prove native AgentSwarm execution.',
     annotations: MUTATING,
   },
   kimi_delegate_and_wait: {
@@ -71,6 +71,12 @@ export const TOOL_METADATA = {
     description: 'List recent Kimi sessions with identifiers, statuses, titles, web links, and workspace metadata. Use to discover an existing job before waiting, reviewing, continuing, aborting, or creating a possible duplicate; use kimi_find_recent_session when a title fragment is known. This is read-only and only queries Kimi session metadata.',
     annotations: READ_ONLY,
   },
+  kimi_recent_jobs: {
+    title: 'List Recent Durable Jobs',
+    description: 'List recent connector-owned durable jobs from the persistent bridge registry, including job IDs, bound Kimi session and prompt IDs, status, workspace, swarm mode, cached result or error data, and timestamps. Use this for interruption or client-timeout recovery before falling back to raw Kimi session discovery. This is read-only and does not contact Kimi or modify session or workspace state.',
+    annotations: READ_ONLY,
+  },
+
   kimi_find_recent_session: {
     title: 'Find Recent Kimi Session',
     description: 'Find recent Kimi sessions whose titles contain a requested substring, optionally constrained by status and working directory. Use for interruption recovery or dedupe when the exact session ID is unknown; prefer session-ID-based tools once a match is known. This is read-only and returns matching candidates plus status-aware next-step guidance without creating or modifying a session.',
