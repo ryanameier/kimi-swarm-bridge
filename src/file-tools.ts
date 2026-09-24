@@ -6,6 +6,7 @@ import {
   listWorkspaceFiles,
   type FileTransferConfig,
 } from './file-transfer.js';
+import { registerFilePanel } from './file-panel.js';
 import { runToolHandler } from './index.js';
 
 /**
@@ -67,4 +68,6 @@ export function registerFileTools(server: McpServer, config: FileTransferConfig)
     },
     async (input) => runToolHandler(() => listWorkspaceFiles(config, input.dir, input.limit)),
   );
+
+  registerFilePanel(server, config);
 }

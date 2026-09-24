@@ -13,6 +13,10 @@ This fork is built around one runtime policy:
 
 The project began as a fork of [`ximenchuifeng/codex-kimi-bridge`](https://github.com/ximenchuifeng/codex-kimi-bridge) and remains available under the MIT License.
 
+## Organization deployment
+
+To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md).
+
 ## What it provides
 
 The bridge exposes Kimi Code through MCP with support for:

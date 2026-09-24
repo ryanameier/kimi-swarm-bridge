@@ -171,8 +171,9 @@ describe('HTTP MCP entrypoint', () => {
       'kimi_create_upload_link',
       'kimi_create_download_link',
       'kimi_list_files',
+      'kimi_file_panel',
     ]));
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(16);
 
     const statusResult = await first.client.callTool({
       name: 'kimi_bridge_status',

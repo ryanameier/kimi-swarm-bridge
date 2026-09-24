@@ -96,6 +96,8 @@ ENV KIMI_MCP_HTTP_PORT=8080
 ENV KIMI_CODE_HOME=/home/kimi/kimi-code
 ENV KIMI_BRIDGE_STATE_DIR=/home/kimi/state
 ENV KIMI_JOB_DB_PATH=/home/kimi/jobs/jobs.sqlite
+# claude.ai drops MCP calls at ~240 s; return a timeout status before that.
+ENV KIMI_MAX_WAIT_MS=200000
 
 # Tools the Sandbox backup/restore API runs inside the container
 # (squashfs snapshots mounted through a FUSE overlay).

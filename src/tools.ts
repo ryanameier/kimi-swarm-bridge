@@ -1005,7 +1005,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
 
       const result = await waitUntilIdle({
         sessionId: input.sessionId,
-        timeoutMs: input.timeoutMs ?? deps.config.requestTimeoutMs,
+        timeoutMs: Math.min(input.timeoutMs ?? deps.config.requestTimeoutMs, deps.config.maxWaitMs ?? Number.POSITIVE_INFINITY),
         pollStatus: async () => ({ status: await deps.kimi.getRuntimeStatus(input.sessionId) }),
       });
       syncJobStatusFromWait(job, result.status);
