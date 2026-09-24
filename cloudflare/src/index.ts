@@ -10,6 +10,8 @@ const BRIDGE_PORT = 8080;
 const BRIDGE_READY_TIMEOUT_MS = 120_000;
 const SANDBOX_SLEEP_AFTER = "30m";
 const SUPERVISOR_PROCESS_ID = "kimi-supervisor";
+// A busy Kimi keeps the container awake, but never longer than this without client activity.
+const MAX_UNATTENDED_BUSY_MS = 6 * 60 * 60 * 1000;
 
 // Directories that survive container restarts via Sandbox backups in R2.
 const PERSISTED_DIRS = ["/home/kimi", "/workspace"] as const;
@@ -20,7 +22,8 @@ const BACKUP_EXCLUDES = ["node_modules/.cache", "*.part-*"];
 // Tool calls that create or change jobs. The job registry is backed up before
 // kimi_delegate_task / kimi_continue_task acknowledgements reach the client.
 const JOB_ACK_TOOLS = new Set(["kimi_delegate_task", "kimi_continue_task"]);
-const JOB_CHANGE_TOOLS = new Set(["kimi_delegate_and_wait", "kimi_abort"]);
+// Calls after which Kimi may have produced files: back up everything.
+const JOB_CHANGE_TOOLS = new Set(["kimi_delegate_and_wait", "kimi_wait_until_idle", "kimi_get_handoff", "kimi_abort"]);
 
 const SANDBOX_ID_PATTERN = /^user-[0-9a-f]{40}$/;
 
@@ -54,6 +57,8 @@ export class KimiSandbox extends Sandbox<Env> {
 	private readonly bridgeToken: string;
 	private starting?: Promise<void>;
 	private backingUp?: Promise<void>;
+	private rerun?: Promise<void>;
+	private rerunFull = false;
 
 	constructor(ctx: DurableObjectState<{}>, env: Env) {
 		super(ctx, env);
@@ -69,6 +74,7 @@ export class KimiSandbox extends Sandbox<Env> {
 
 	/** Make sure the bridge is serving; restores state and starts it on a fresh container. */
 	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void> {
+		await this.ctx.storage.delete("busySince");
 		if (await this.bridgeHealthy()) return;
 		this.starting ??= this.startRuntime(sandboxId, publicBaseUrl).finally(() => {
 			this.starting = undefined;
@@ -76,24 +82,62 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.starting;
 	}
 
-	/** Snapshot persisted directories to R2. `stateOnly` limits it to the job registry and Kimi sessions. */
+	/**
+	 * Snapshot persisted directories to R2. `stateOnly` limits it to the job
+	 * registry and Kimi sessions. Concurrent requests coalesce into at most one
+	 * follow-up run so bursts of activity do not queue many backups.
+	 */
 	async backupNow(stateOnly = false): Promise<void> {
-		while (this.backingUp) await this.backingUp.catch(() => {});
+		if (this.backingUp) {
+			this.rerunFull ||= !stateOnly;
+			this.rerun ??= this.backingUp.catch(() => {}).then(() => {
+				const full = this.rerunFull;
+				this.rerun = undefined;
+				this.rerunFull = false;
+				return this.backupNow(!full);
+			});
+			return this.rerun;
+		}
 		this.backingUp = this.runBackup(stateOnly ? [STATE_DIR] : [...PERSISTED_DIRS]).finally(() => {
 			this.backingUp = undefined;
 		});
 		await this.backingUp;
 	}
 
+	/** Stop the container. The next request restores from the latest backup and starts fresh. */
+	async restartRuntime(): Promise<void> {
+		await this.stop();
+	}
+
+	async backupStatus(): Promise<{ lastBackupAt: number | null; backups: Record<string, string> }> {
+		const backups: Record<string, string> = {};
+		for (const dir of PERSISTED_DIRS) {
+			const handle = await this.ctx.storage.get<DirectoryBackup>(`backup:${dir}`);
+			if (handle) backups[dir] = handle.id;
+		}
+		return { lastBackupAt: (await this.ctx.storage.get<number>("lastBackupAt")) ?? null, backups };
+	}
+
+	/** Start a backup without waiting for it (used after uploads and completed jobs). */
+	async requestBackup(stateOnly = false): Promise<void> {
+		void this.backupNow(stateOnly).catch((error) => console.error("background backup failed", error));
+	}
+
 	override async onActivityExpired(): Promise<void> {
 		try {
 			if (await this.kimiBusy()) {
-				this.renewActivityTimeout();
-				return;
+				const busySince = (await this.ctx.storage.get<number>("busySince")) ?? Date.now();
+				await this.ctx.storage.put("busySince", busySince);
+				if (Date.now() - busySince < MAX_UNATTENDED_BUSY_MS) {
+					this.renewActivityTimeout();
+					return;
+				}
+				console.error("Kimi busy beyond the unattended limit; sleeping anyway");
 			}
 		} catch (error) {
 			console.error("activity probe failed", error);
 		}
+		await this.ctx.storage.delete("busySince");
 
 		try {
 			await this.backupNow();
@@ -233,7 +277,7 @@ const mcpHandler = {
 		}
 
 		if (tools.some((name) => JOB_CHANGE_TOOLS.has(name))) {
-			ctx.waitUntil(sandbox.backupNow(true).catch((error) => console.error("job registry backup failed", error)));
+			ctx.waitUntil(sandbox.requestBackup(false));
 		}
 
 		return response;
@@ -282,7 +326,7 @@ async function handleFileRoute(request: Request, env: Env): Promise<Response | n
 	}
 
 	const headers = forwardHeaders(request, env);
-	return sandbox.containerFetch(
+	const response = await sandbox.containerFetch(
 		new Request(`http://container${url.pathname}`, {
 			method: request.method,
 			headers,
@@ -290,6 +334,40 @@ async function handleFileRoute(request: Request, env: Env): Promise<Response | n
 		}),
 		BRIDGE_PORT,
 	);
+	if (match[1] === "upload" && response.status === 201) {
+		await sandbox.requestBackup(false);
+	}
+	return response;
+}
+
+/**
+ * Operator endpoints, authenticated with the ADMIN_TOKEN secret:
+ *   GET  /admin/sandboxes/<id>          backup status
+ *   POST /admin/sandboxes/<id>/backup   back up now
+ *   POST /admin/sandboxes/<id>/restart  stop the container (applies new images; next request restores)
+ */
+async function handleAdminRoute(request: Request, env: Env): Promise<Response | null> {
+	const url = new URL(request.url);
+	const match = /^\/admin\/sandboxes\/([^/]+)(?:\/(backup|restart))?$/.exec(url.pathname);
+	if (!match) return null;
+
+	const supplied = new TextEncoder().encode(request.headers.get("authorization") ?? "");
+	const expected = new TextEncoder().encode(`Bearer ${env.ADMIN_TOKEN}`);
+	if (!env.ADMIN_TOKEN || supplied.byteLength !== expected.byteLength || !crypto.subtle.timingSafeEqual(supplied, expected)) {
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	}
+	if (!SANDBOX_ID_PATTERN.test(match[1])) return Response.json({ error: "Unknown sandbox id" }, { status: 400 });
+
+	const sandbox = getSandbox(env.KIMI_SANDBOX, match[1], { sleepAfter: SANDBOX_SLEEP_AFTER });
+	if (!match[2] && request.method === "GET") return Response.json(await sandbox.backupStatus());
+	if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
+
+	if (match[2] === "backup") {
+		await sandbox.backupNow(false);
+		return Response.json(await sandbox.backupStatus());
+	}
+	await sandbox.restartRuntime();
+	return Response.json({ restarted: match[1] });
 }
 
 export default new OAuthProvider({
@@ -299,7 +377,11 @@ export default new OAuthProvider({
 	clientRegistrationEndpoint: "/register",
 	defaultHandler: {
 		async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-			return (await handleFileRoute(request, env)) ?? handleAccessRequest(request, env as any, ctx);
+			return (
+				(await handleFileRoute(request, env)) ??
+				(await handleAdminRoute(request, env)) ??
+				handleAccessRequest(request, env as any, ctx)
+			);
 		},
 	} as any,
 	tokenEndpoint: "/token",

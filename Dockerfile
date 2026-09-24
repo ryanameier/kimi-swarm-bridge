@@ -35,18 +35,32 @@ ENV KIMI_MCP_TRANSPORT=http
 ENV KIMI_MCP_HTTP_HOST=0.0.0.0
 ENV KIMI_MCP_HTTP_PORT=3000
 
+# Local workbench for deterministic file/document work (no SaaS needed for
+# PDF/DOCX/XLSX/ZIP handling).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates \
        curl \
+       file \
        git \
+       jq \
+       poppler-utils \
+       python3 \
+       python3-pip \
+       ripgrep \
        tini \
+       unzip \
+       zip \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global @moonshot-ai/kimi-code@0.42.0
+    && pip3 install --no-cache-dir --break-system-packages \
+       openpyxl==3.1.5 \
+       pillow==11.3.0 \
+       pypdf==6.1.1 \
+       python-docx==1.2.0 \
+       reportlab==4.4.4 \
+    && npm install --global @moonshot-ai/kimi-code@0.42.0 pnpm@10.34.5
 
 WORKDIR /app
-
-RUN npm install --global pnpm@10.34.5
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile
@@ -82,6 +96,16 @@ ENV KIMI_MCP_HTTP_PORT=8080
 ENV KIMI_CODE_HOME=/home/kimi/kimi-code
 ENV KIMI_BRIDGE_STATE_DIR=/home/kimi/state
 ENV KIMI_JOB_DB_PATH=/home/kimi/jobs/jobs.sqlite
+
+# Tools the Sandbox backup/restore API runs inside the container
+# (squashfs snapshots mounted through a FUSE overlay).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       fuse-overlayfs \
+       fuse3 \
+       squashfs-tools \
+       squashfuse \
+    && rm -rf /var/lib/apt/lists/*
 
 # Public Internet tools for Kimi workers. The supervisor registers it in
 # $KIMI_CODE_HOME/mcp.json when FIRECRAWL_API_KEY is provided.
