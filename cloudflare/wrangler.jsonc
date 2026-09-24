@@ -1,0 +1,38 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "kimi-swarm-bridge",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	"containers": [
+		{
+			"class_name": "KimiSandbox",
+			"image": "../Dockerfile",
+			"image_build_context": "..",
+			"image_vars": { "IMAGE_VARIANT": "cloudflare" },
+			"instance_type": "standard-2",
+			"max_instances": 10
+		}
+	],
+	"durable_objects": {
+		"bindings": [{ "class_name": "KimiSandbox", "name": "KIMI_SANDBOX" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
+	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "37efc78a9bb646608c9650e7a720b599" }],
+	"secrets": {
+		"required": [
+			"AIAND_API_KEY",
+			"FIRECRAWL_API_KEY",
+			"BRIDGE_TOKEN",
+			"ACCESS_CLIENT_ID",
+			"ACCESS_CLIENT_SECRET",
+			"ACCESS_TOKEN_URL",
+			"ACCESS_AUTHORIZATION_URL",
+			"ACCESS_JWKS_URL",
+			"COOKIE_ENCRYPTION_KEY"
+		]
+	}
+}

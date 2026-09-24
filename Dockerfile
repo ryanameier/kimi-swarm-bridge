@@ -1,4 +1,7 @@
 ARG CLOUDFLARE_SANDBOX_VERSION=0.12.10
+# Final image variant: "runtime" (default, self-hosted) or "cloudflare".
+# Wrangler cannot pick a build target, so it sets this via image_vars.
+ARG IMAGE_VARIANT=runtime
 
 FROM node:22.19-bookworm-slim AS build
 
@@ -66,7 +69,7 @@ RUN mkdir -p \
 
 
 # Cloudflare Sandbox runtime: one container per employee.
-# Build with: docker build --platform linux/amd64 --target cloudflare .
+# Build with: docker build --platform linux/amd64 --build-arg IMAGE_VARIANT=cloudflare .
 # The sandbox control server owns port 3000, so the MCP bridge moves to 8080.
 FROM docker.io/cloudflare/sandbox:${CLOUDFLARE_SANDBOX_VERSION} AS cloudflare-sandbox
 
@@ -86,7 +89,7 @@ ENTRYPOINT ["/container-server/sandbox"]
 CMD ["node", "/app/supervisor.mjs"]
 
 
-# Default image (self-hosted / Glama). Kept last so it remains the default build target.
+# Default image (self-hosted / Glama).
 FROM base AS runtime
 
 VOLUME ["/data"]
@@ -95,3 +98,6 @@ EXPOSE 3000
 
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "/app/supervisor.mjs"]
+
+
+FROM ${IMAGE_VARIANT} AS final
