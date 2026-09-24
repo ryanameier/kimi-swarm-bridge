@@ -30,7 +30,7 @@ button{font:inherit;border:1px solid var(--line);background:var(--chip);color:va
 button:hover{border-color:var(--accent)}progress{width:90px}
 .ok{color:var(--ok)}.err{color:var(--err)}#status{min-height:1.2em;font-size:12px;color:var(--muted)}
 </style></head><body><main>
-<div id="drop" tabindex="0" role="button" aria-label="Choose files to upload to Kimi"><b>Choose files</b> or drop them here to give them to Kimi
+<div id="drop" tabindex="0" role="button" aria-label="Drop files here or choose files to upload to Kimi"><b>Drop files here</b> to give them to Kimi, or click to choose
 <input id="pick" type="file" multiple hidden></div>
 <div id="uploads"></div>
 <h2>Kimi workspace <button id="refresh" title="Refresh">Refresh</button></h2>
@@ -75,8 +75,17 @@ async function download(path,btn){
   try{
     const link=await callTool('kimi_create_download_link',{path});
     if(host.downloadFile){
-      const r=await request('ui/download-file',{contents:[{type:'resource_link',uri:link.downloadUrl,name:link.name,mimeType:'application/octet-stream'}]});
-      status(r&&r.isError?'Download was cancelled.':'Downloaded '+link.name+' (SHA-256 '+link.sha256.slice(0,12)+'…)',r&&r.isError?'err':'ok');
+      // Hand the host the bytes inline; hosts may refuse to fetch third-party links themselves.
+      const res=await fetch(link.downloadUrl);
+      if(!res.ok)throw new Error('Download failed: HTTP '+res.status);
+      const buf=new Uint8Array(await res.arrayBuffer());
+      let bin='';for(let i=0;i<buf.length;i+=32768)bin+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));
+      const mimeType=res.headers.get('content-type')||'application/octet-stream';
+      const r=await request('ui/download-file',{contents:[{type:'resource',resource:{uri:'file:///'+encodeURIComponent(link.name),mimeType,blob:btoa(bin)}}]});
+      if(r&&r.isError){
+        if(host.openLinks){await request('ui/open-link',{url:link.downloadUrl});status('Opened download link for '+link.name+' (inline download was declined: '+JSON.stringify(r).slice(0,160)+')','ok');}
+        else status('The host declined the download: '+JSON.stringify(r).slice(0,200),'err');
+      }else status('Downloaded '+link.name+' (SHA-256 '+link.sha256.slice(0,12)+'…)','ok');
     }else if(host.openLinks){
       await request('ui/open-link',{url:link.downloadUrl});status('Opened download for '+link.name,'ok');
     }else{
@@ -115,7 +124,12 @@ async function handle(files){
   }
 }
 const drop=$('drop'),pick=$('pick');
-drop.onclick=()=>pick.click();drop.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' ')pick.click()};
+drop.onclick=()=>{
+  let opened=false;const mark=()=>{opened=true};
+  window.addEventListener('blur',mark,{once:true});pick.addEventListener('cancel',mark,{once:true});
+  pick.click();
+  setTimeout(()=>{window.removeEventListener('blur',mark);if(!opened&&!pick.files.length)status('This app window cannot open a file picker here. Drag files onto the box instead.','err')},1500);
+};drop.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' ')pick.click()};
 pick.onchange=()=>{handle([...pick.files]);pick.value=''};
 drop.ondragover=(e)=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');
 drop.ondrop=(e)=>{e.preventDefault();drop.classList.remove('over');handle([...e.dataTransfer.files])};
