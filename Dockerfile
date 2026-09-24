@@ -1,3 +1,5 @@
+ARG CLOUDFLARE_SANDBOX_VERSION=0.12.10
+
 FROM node:22.19-bookworm-slim AS build
 
 WORKDIR /app
@@ -13,7 +15,7 @@ COPY src ./src
 RUN pnpm build:core
 
 
-FROM node:22.19-bookworm-slim AS runtime
+FROM node:22.19-bookworm-slim AS base
 
 ENV NODE_ENV=production
 ENV KIMI_CODE_HOME=/data/kimi-code
@@ -61,6 +63,31 @@ RUN mkdir -p \
     && printf '# Container smoke workspace\n' > README.md \
     && git add README.md \
     && git commit -m "Initialize container workspace"
+
+
+# Cloudflare Sandbox runtime: one container per employee.
+# Build with: docker build --platform linux/amd64 --target cloudflare .
+# The sandbox control server owns port 3000, so the MCP bridge moves to 8080.
+FROM docker.io/cloudflare/sandbox:${CLOUDFLARE_SANDBOX_VERSION} AS cloudflare-sandbox
+
+FROM base AS cloudflare
+
+ENV KIMI_MCP_HTTP_PORT=8080
+
+# Public Internet tools for Kimi workers. The supervisor registers it in
+# $KIMI_CODE_HOME/mcp.json when FIRECRAWL_API_KEY is provided.
+RUN npm install --global firecrawl-mcp@3.25.4
+
+COPY --from=cloudflare-sandbox /container-server /container-server
+
+EXPOSE 8080
+
+ENTRYPOINT ["/container-server/sandbox"]
+CMD ["node", "/app/supervisor.mjs"]
+
+
+# Default image (self-hosted / Glama). Kept last so it remains the default build target.
+FROM base AS runtime
 
 VOLUME ["/data"]
 

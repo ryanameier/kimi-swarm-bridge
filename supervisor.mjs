@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 import { applyAiandRuntimePolicy } from "./dist/runtime-policy.js";
 
@@ -9,6 +9,42 @@ const kimiPort = process.env.KIMI_SERVER_PORT || "58627";
 const kimiBaseUrl = `http://${kimiHost}:${kimiPort}`;
 
 applyAiandRuntimePolicy(process.env);
+
+// Register Internet MCP tools for Kimi (coordinator and coder workers load
+// user-global servers from $KIMI_CODE_HOME/mcp.json). Stdio MCP children do not
+// inherit the full environment, so the key is written into the server entry.
+async function registerInternetTools() {
+  const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
+
+  if (!firecrawlKey) {
+    return;
+  }
+
+  const mcpPath = `${kimiCodeHome}/mcp.json`;
+  let config = {};
+
+  try {
+    config = JSON.parse(await readFile(mcpPath, "utf8"));
+  } catch {
+    // No existing config.
+  }
+
+  config.mcpServers = {
+    ...config.mcpServers,
+    firecrawl: {
+      command: "firecrawl-mcp",
+      args: [],
+      env: { FIRECRAWL_API_KEY: firecrawlKey },
+    },
+  };
+
+  await mkdir(kimiCodeHome, { recursive: true });
+  await writeFile(mcpPath, `${JSON.stringify(config, null, 2)}\n`, {
+    mode: 0o600,
+  });
+}
+
+await registerInternetTools();
 
 Object.assign(process.env, {
   KIMI_CODE_HOME: kimiCodeHome,
