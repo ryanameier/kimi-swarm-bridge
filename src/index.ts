@@ -11,6 +11,8 @@ import { KimiApiError, KimiNetworkError } from './errors.js';
 import { KimiHttpClient } from './kimi/http.js';
 import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
+import type { FileTransferConfig } from './file-transfer.js';
+import { registerFileTools } from './file-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -77,7 +79,11 @@ export async function runToolHandler(handler: () => Promise<unknown>): Promise<{
   }
 }
 
-export function createMcpServer(): McpServer {
+export interface CreateMcpServerOptions {
+  fileTransfer?: FileTransferConfig;
+}
+
+export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer {
   const config = loadBridgeConfig();
   const http = new KimiHttpClient(config.serverUrl, fetch, config.requestTimeoutMs, config.serverToken);
   const preflight = new KimiPreflight(config, http);
@@ -289,6 +295,10 @@ export function createMcpServer(): McpServer {
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input)),
   );
+
+  if (options.fileTransfer) {
+    registerFileTools(server, options.fileTransfer);
+  }
 
   return server;
 }

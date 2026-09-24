@@ -75,7 +75,13 @@ FROM docker.io/cloudflare/sandbox:${CLOUDFLARE_SANDBOX_VERSION} AS cloudflare-sa
 
 FROM base AS cloudflare
 
+# Persistent state lives under /home/kimi and /workspace, the directories the
+# Sandbox backup API can snapshot to R2. The Durable Object restores those
+# backups and then starts the supervisor, so the image has no startup command.
 ENV KIMI_MCP_HTTP_PORT=8080
+ENV KIMI_CODE_HOME=/home/kimi/kimi-code
+ENV KIMI_BRIDGE_STATE_DIR=/home/kimi/state
+ENV KIMI_JOB_DB_PATH=/home/kimi/jobs/jobs.sqlite
 
 # Public Internet tools for Kimi workers. The supervisor registers it in
 # $KIMI_CODE_HOME/mcp.json when FIRECRAWL_API_KEY is provided.
@@ -86,7 +92,7 @@ COPY --from=cloudflare-sandbox /container-server /container-server
 EXPOSE 8080
 
 ENTRYPOINT ["/container-server/sandbox"]
-CMD ["node", "/app/supervisor.mjs"]
+CMD []
 
 
 # Default image (self-hosted / Glama).
