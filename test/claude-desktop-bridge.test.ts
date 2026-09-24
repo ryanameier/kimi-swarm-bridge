@@ -17,8 +17,8 @@ describe('Claude Desktop bridge and handoff swarm-evidence wiring', () => {
     const catalog = readFileSync(new URL('../src/tool-catalog.ts', import.meta.url), 'utf8');
 
     expect(catalog).toContain('fresh structured swarmEvidence snapshot');
-    expect(catalog).toContain('first call kimi_wait_until_idle on the same session');
-    expect(catalog).toContain('without submitting another prompt');
+    expect(catalog).toContain('recover with kimi_recent_jobs');
+    expect(catalog).toContain('then use kimi_wait_until_idle and kimi_get_handoff');
   });
 
   it('ships a stdio to Streamable HTTP bridge for Claude Desktop', () => {

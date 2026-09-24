@@ -106,7 +106,7 @@ export function createMcpServer(): McpServer {
     jobRegistry,
     jobOwner,
   });
-  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.3' });
+  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.4' });
 
   server.registerTool(
     'kimi_delegate_task',

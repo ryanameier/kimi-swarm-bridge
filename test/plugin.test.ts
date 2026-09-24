@@ -90,7 +90,7 @@ describe('Codex plugin package', () => {
     );
 
     expect(packageJson).toMatchObject({
-      version: '0.3.3',
+      version: '0.3.4',
       license: 'MIT',
       author: 'ximenchuifeng',
       repository: {
@@ -115,7 +115,7 @@ describe('Codex plugin package', () => {
     expect(existsSync(resolve('LICENSE'))).toBe(true);
 
     const bundleText = readFileSync(bundlePath, 'utf8');
-    expect(bundleText).toContain('0.3.3');
+    expect(bundleText).toContain('0.3.4');
 
     const readme = readFileSync(resolve('README.md'), 'utf8');
     const skill = readFileSync(join(pluginRoot, 'skills/kimi-delegate/SKILL.md'), 'utf8');

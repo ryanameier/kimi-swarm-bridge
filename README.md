@@ -451,20 +451,54 @@ the centrally configured Kimi model alias; passing a raw provider model ID such
 as `moonshotai/kimi-k3` can fail because Kimi's profile API expects a configured
 alias.
 
-### Long AgentSwarm jobs and timeout recovery
+### Long jobs, durable recovery, and AgentSwarm evidence
 
-`kimi_delegate_and_wait` may return `wait.status: "timeout"` while a native
-AgentSwarm job is still running. A timeout does **not** abort the session.
+For long-running work, prefer the asynchronous sequence:
 
-Use the same session ID:
+1. Call `kimi_delegate_task`.
+2. Keep the returned `jobId` and `sessionId` when available.
+3. Call `kimi_wait_until_idle` with that session ID.
+4. When the job is `idle`, call `kimi_get_handoff` or
+   `kimi_review_package`.
 
-1. Call `kimi_wait_until_idle`.
-2. When it returns `idle`, call `kimi_get_handoff`.
-3. `kimi_get_handoff` returns the final result plus a fresh structured
-   `swarmEvidence` snapshot.
+`kimi_delegate_and_wait` remains convenient for work expected to finish while
+the caller stays connected. Its wait may time out, and an MCP/client transport
+may also disconnect before the tool response is delivered. Neither condition
+means the underlying Kimi job should be submitted again.
 
-This avoids submitting a second prompt merely to refresh evidence. For native
-swarm acceptance, verify:
+When durable jobs are configured, recovery should start with
+`kimi_recent_jobs`. The registry is persistent and connector-owned, so after a
+client timeout, reconnect, or bridge restart it can recover the durable
+`jobId`, bound Kimi `sessionId`, prompt ID, last known status, and cached
+result/error data without relying on raw session-title guessing. After
+recovering the session ID, continue with `kimi_wait_until_idle` and then
+`kimi_get_handoff`.
+
+The durable registry is an ownership and recovery index; Kimi remains the
+source of truth for the live session and transcript. A direct
+`kimi_get_handoff` refreshes the authoritative Kimi session status and
+reconciles the durable job record.
+
+Durable jobs are enabled only when both variables are configured:
+
+```text
+KIMI_ORGANIZATION_ID=<customer-or-organization-id>
+KIMI_CONNECTOR_INSTANCE_ID=<stable-connector-instance-id>
+```
+
+The default SQLite database is:
+
+```text
+/data/kimi-swarm-bridge/jobs.sqlite
+```
+
+`KIMI_JOB_DB_PATH` can override that path. Hosted deployments should place the
+database on persistent storage. The current pilot isolation model is one
+isolated hosted connector/runtime per customer organization; possession of a
+job ID or Kimi session ID is not treated as authorization.
+
+For native AgentSwarm acceptance, the final `kimi_get_handoff` includes a
+fresh structured `swarmEvidence` snapshot. Verify values such as:
 
 ```text
 swarmEvidence.available: true
@@ -504,7 +538,8 @@ The container defaults to Streamable HTTP transport for hosted use.
 - Never commit `KIMI_MCP_AUTH_TOKEN`.
 - Kimi's REST API should remain bound to `127.0.0.1`.
 - Expose the MCP endpoint through HTTPS in hosted environments.
-- Persistent MCP job/session state does not by itself provide tenant isolation. Multi-tenant deployments should add organization identity and workspace boundaries before being treated as hardened shared infrastructure.
+- Durable job ownership requires both `KIMI_ORGANIZATION_ID` and `KIMI_CONNECTOR_INSTANCE_ID`; job IDs and Kimi session IDs are not authorization credentials.
+- Persistent MCP job/session state does not by itself provide hardened multi-tenant isolation. The current pilot model uses an isolated connector/runtime per customer organization; shared multi-tenant deployments require stronger organization identity and workspace boundaries.
 
 ## Status
 
