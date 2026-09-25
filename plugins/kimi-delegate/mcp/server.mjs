@@ -22211,7 +22211,7 @@ var KimiClient = class {
 // src/prompt.ts
 function swarmLimitText(limits) {
   if (!limits) return "";
-  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. Tell each worker to save its findings to a notes file under /tmp/notes as it goes (its working context is summarized automatically when it grows) and to return a concise summary with sources rather than raw page content. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
 `;
 }
 var WORKSPACE_FILES = `
@@ -22707,7 +22707,10 @@ var ENV_MODEL_ALIAS = "__kimi_env_model__";
 var ENV_PROVIDER = "__kimi_env__";
 var ALIAS_PREFIX = "aiand:";
 var MANAGED_HEADER = "# Managed by kimi-swarm-bridge (kimi_model_settings). Manual edits are overwritten.";
-var MAX_CONTEXT_TOKENS = 262144;
+function maxContextTokens(env = process.env) {
+  const raw = Number.parseInt(env.KIMI_MODEL_MAX_CONTEXT_SIZE ?? env.KIMI_CONTEXT_WINDOW ?? "", 10);
+  return Number.isInteger(raw) && raw > 0 ? raw : 131072;
+}
 function modelSettingsPath(stateDir) {
   return join5(stateDir, "model-settings.json");
 }
@@ -22757,7 +22760,7 @@ function renderKimiModelConfig(settings, catalog, defaultModel, preferredEffort)
       `[models.${tomlString(modelAlias(id, defaultModel))}]`,
       `provider = ${tomlString(ENV_PROVIDER)}`,
       `model = ${tomlString(id)}`,
-      `max_context_size = ${Math.min(model?.contextWindow ?? MAX_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)}`,
+      `max_context_size = ${Math.min(model?.contextWindow ?? maxContextTokens(), maxContextTokens())}`,
       `capabilities = [${(model ? kimiCapabilities(model) : ["thinking"]).map(tomlString).join(", ")}]`,
       ""
     );

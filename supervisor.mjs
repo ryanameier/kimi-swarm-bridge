@@ -29,12 +29,21 @@ async function registerInternetTools() {
     // No existing config.
   }
 
+  // Every tool definition is re-sent on every model request (Firecrawl ships
+  // ~29 tools, ~13k tokens), so only the tools research needs are enabled.
+  const enabledTools = (process.env.KIMI_FIRECRAWL_TOOLS ||
+    "firecrawl_search,firecrawl_scrape,firecrawl_map")
+    .split(",")
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+
   config.mcpServers = {
     ...config.mcpServers,
     firecrawl: {
       command: "firecrawl-mcp",
       args: [],
       env: { FIRECRAWL_API_KEY: firecrawlKey },
+      ...(enabledTools.includes("all") ? {} : { enabledTools }),
     },
   };
 
@@ -48,6 +57,12 @@ await registerInternetTools();
 
 Object.assign(process.env, {
   KIMI_CODE_HOME: kimiCodeHome,
+  // Kimi compacts its context at ~85% of this window. A smaller window keeps
+  // long-running agents from re-sending very large contexts on every step.
+  KIMI_MODEL_MAX_CONTEXT_SIZE:
+    process.env.KIMI_MODEL_MAX_CONTEXT_SIZE ||
+    process.env.KIMI_CONTEXT_WINDOW ||
+    "131072",
   KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY:
     process.env.KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY || "4",
 

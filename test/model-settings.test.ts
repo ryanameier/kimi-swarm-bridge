@@ -45,7 +45,7 @@ describe('model settings', () => {
 
   it('renders worker models as a forced secondary model on the environment provider', () => {
     const toml = renderKimiModelConfig({ workerModel: 'zai-org/glm-5.3' }, catalog, 'moonshotai/kimi-k3', 'high');
-    expect(toml).toContain('[models."aiand:zai-org/glm-5.3"]\nprovider = "__kimi_env__"\nmodel = "zai-org/glm-5.3"\nmax_context_size = 262144\ncapabilities = ["thinking"]');
+    expect(toml).toContain('[models."aiand:zai-org/glm-5.3"]\nprovider = "__kimi_env__"\nmodel = "zai-org/glm-5.3"\nmax_context_size = 131072\ncapabilities = ["thinking"]');
     expect(toml).toContain('[secondary_model]\nforce = true\ndefault_model = "aiand:zai-org/glm-5.3"\ndefault_effort = "high"');
     expect(toml).not.toContain('api_key');
   });

@@ -21,7 +21,11 @@ const ENV_PROVIDER = '__kimi_env__';
 const ALIAS_PREFIX = 'aiand:';
 const MANAGED_HEADER = '# Managed by kimi-swarm-bridge (kimi_model_settings). Manual edits are overwritten.';
 // Smaller windows make Kimi compact long sessions sooner, which keeps per-step cost down.
-const MAX_CONTEXT_TOKENS = 262_144;
+// Matches the supervisor's KIMI_MODEL_MAX_CONTEXT_SIZE default for the environment model.
+function maxContextTokens(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number.parseInt(env.KIMI_MODEL_MAX_CONTEXT_SIZE ?? env.KIMI_CONTEXT_WINDOW ?? '', 10);
+  return Number.isInteger(raw) && raw > 0 ? raw : 131_072;
+}
 
 export interface ModelSettings {
   /** ai& model id for the coordinator; undefined = deployment default (KIMI_MODEL_NAME). */
@@ -95,7 +99,7 @@ export function renderKimiModelConfig(
       `[models.${tomlString(modelAlias(id, defaultModel))}]`,
       `provider = ${tomlString(ENV_PROVIDER)}`,
       `model = ${tomlString(id)}`,
-      `max_context_size = ${Math.min(model?.contextWindow ?? MAX_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)}`,
+      `max_context_size = ${Math.min(model?.contextWindow ?? maxContextTokens(), maxContextTokens())}`,
       `capabilities = [${(model ? kimiCapabilities(model) : ['thinking']).map(tomlString).join(', ')}]`,
       '',
     );

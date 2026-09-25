@@ -9,7 +9,7 @@ export interface PromptContext {
 
 function swarmLimitText(limits: PromptContext['swarmLimits']): string {
   if (!limits) return '';
-  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. Tell each worker to save its findings to a notes file under /tmp/notes as it goes (its working context is summarized automatically when it grows) and to return a concise summary with sources rather than raw page content. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
 `;
 }
 

@@ -10,6 +10,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { loadBridgeConfig } from './config.js';
 import { handleFileRequest, loadFileTransferConfig } from './file-transfer.js';
 import { createMcpServer } from './index.js';
+import { applySavedModelSettings } from './model-tools.js';
 import { KimiClient } from './kimi/client.js';
 import { KimiHttpClient } from './kimi/http.js';
 
@@ -337,4 +338,10 @@ httpServer.listen(port, host, () => {
   process.stderr.write(
     `Kimi swarm MCP listening on http://${host}:${port}/mcp\n`,
   );
+  const bridgeConfig = loadBridgeConfig();
+  void applySavedModelSettings({
+    stateDir: bridgeConfig.stateDir,
+    kimiCodeHome: bridgeConfig.kimiCodeHome,
+    defaultThinking: bridgeConfig.defaultThinking,
+  });
 });

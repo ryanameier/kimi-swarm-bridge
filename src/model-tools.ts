@@ -100,3 +100,21 @@ export function registerModelSettingsTool(server: McpServer, options: ModelToolO
     }),
   );
 }
+
+/**
+ * Re-render Kimi's model config from the saved settings, so settings written
+ * by an older bridge pick up current defaults (for example the context window).
+ * Called once at startup; failures only log.
+ */
+export async function applySavedModelSettings(options: ModelToolOptions): Promise<void> {
+  const env = options.env ?? process.env;
+  const settings = loadModelSettings(options.stateDir);
+  if (!options.kimiCodeHome || (settings.coordinatorModel === undefined && settings.workerModel === undefined)) return;
+  try {
+    const catalog = await getModelCatalog(env);
+    if (!catalog) return;
+    writeKimiModelConfig(options.kimiCodeHome, renderKimiModelConfig(settings, catalog, env.KIMI_MODEL_NAME, options.defaultThinking));
+  } catch (error) {
+    process.stderr.write(`Could not apply saved model settings: ${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
