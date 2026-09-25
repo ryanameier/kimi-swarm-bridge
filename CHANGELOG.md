@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- README cleanup: removed the Glama-hosted Claude Desktop walkthrough and pilot wording. The
+  Claude Desktop wrapper in `scripts/claude-desktop/` now needs `KIMI_MCP_URL` and reads the token
+  from the Keychain item `kimi-swarm-mcp` (was `kimi-swarm-glama`, with a Glama URL hardcoded).
 - README: benchmarks of Kimi Swarm vs Claude on web research briefs (time, completeness, cost) and
   what limits scaling past them.
 - `kimi_model_settings`: users switch the ai& models Kimi uses from chat, separately for the

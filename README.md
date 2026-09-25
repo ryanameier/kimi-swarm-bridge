@@ -138,11 +138,7 @@ For a swarm task it:
 5. lets Kimi invoke its native `AgentSwarm` tool
 6. waits for the coordinator to synthesize worker results
 
-The pilot container defaults to:
-
-```text
-KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4
-```
+The Docker image defaults to 4 concurrent workers (`KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4`). The Cloudflare edition sets it with `SWARM_CONCURRENCY` and lets Kimi choose how many agents to use, up to a cap an admin can change live.
 
 ## Docker
 
@@ -281,208 +277,38 @@ pnpm test
 
 The optional local Codex plugin validator test is skipped when the external Codex `plugin-creator` validator is not installed.
 
-## Claude Desktop on macOS
+## Claude Desktop with a self-hosted bridge
 
-For Claude Desktop, the validated setup is a local stdio MCP entry that forwards
-to the Glama-hosted bridge over Streamable HTTP:
+The Cloudflare edition is added as a connector in Claude (web and Desktop); no local setup is needed.
 
-```text
-Claude Desktop
-    ↓ stdio
-local kimi-mcp-bridge.py
-    ↓ Streamable HTTP + Glama bearer token
-Glama-hosted kimi-swarm-bridge
-    ↓
-Kimi Code native AgentSwarm
-    ↓
-ai&
-```
-
-This path is intentionally different from a Claude **Web / Custom Connector**.
-The hosted bridge itself works over authenticated Streamable HTTP, but cloud
-connector/proxy layers can impose their own MCP session behavior. The local
-stdio wrapper keeps Claude Desktop's side simple and normalizes the remote HTTP
-session explicitly.
-
-The wrapper uses only the Python standard library. It captures and reuses
-`Mcp-Session-Id`, sends `MCP-Protocol-Version`, accepts JSON or SSE responses,
-and keeps the Glama access token out of Claude's JSON configuration.
-
-### 1. Verify the remote MCP before configuring Claude
-
-Set a dedicated Glama access token without putting it in shell history:
+For a self-hosted Docker bridge, `scripts/claude-desktop/` has a small stdio wrapper that forwards Claude Desktop to your bridge over Streamable HTTP. It reads the bearer token from the macOS Keychain, so the token stays out of Claude's config:
 
 ```bash
-read -s GLAMA_TOKEN
-export GLAMA_TOKEN
-echo
-```
+read -s KIMI_MCP_AUTH_TOKEN
+/usr/bin/security add-generic-password -a "$(/usr/bin/id -un)" -s kimi-swarm-mcp -w "$KIMI_MCP_AUTH_TOKEN" -U
+unset KIMI_MCP_AUTH_TOKEN
 
-Initialize:
-
-```bash
-curl -sS -D /tmp/kimi-mcp-headers.txt \
-  -o /tmp/kimi-mcp-init.txt \
-  -X POST 'https://glama.ai/endpoints/bqnlviwzd5/mcp' \
-  -H "Authorization: Bearer $GLAMA_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"kimi-desktop-test","version":"1.0.0"}}}'
-
-cat /tmp/kimi-mcp-headers.txt
-cat /tmp/kimi-mcp-init.txt
-```
-
-Capture the session ID returned by Glama:
-
-```bash
-MCP_SESSION_ID="$(
-  awk 'tolower($1)=="mcp-session-id:" {
-    gsub("\r","",$2)
-    print $2
-  }' /tmp/kimi-mcp-headers.txt
-)"
-echo "Session: $MCP_SESSION_ID"
-```
-
-Complete initialization and list tools:
-
-```bash
-curl -sS \
-  -X POST 'https://glama.ai/endpoints/bqnlviwzd5/mcp' \
-  -H "Authorization: Bearer $GLAMA_TOKEN" \
-  -H "Mcp-Session-Id: $MCP_SESSION_ID" \
-  -H 'MCP-Protocol-Version: 2025-11-25' \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
-
-curl -sS \
-  -X POST 'https://glama.ai/endpoints/bqnlviwzd5/mcp' \
-  -H "Authorization: Bearer $GLAMA_TOKEN" \
-  -H "Mcp-Session-Id: $MCP_SESSION_ID" \
-  -H 'MCP-Protocol-Version: 2025-11-25' \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-```
-
-Then verify one real tool call:
-
-```bash
-curl -sS \
-  -X POST 'https://glama.ai/endpoints/bqnlviwzd5/mcp' \
-  -H "Authorization: Bearer $GLAMA_TOKEN" \
-  -H "Mcp-Session-Id: $MCP_SESSION_ID" \
-  -H 'MCP-Protocol-Version: 2025-11-25' \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json, text/event-stream' \
-  --data '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"kimi_bridge_status","arguments":{}}}'
-```
-
-Do not continue with Claude setup until these remote checks succeed.
-
-### 2. Store the Glama token in macOS Keychain
-
-With `GLAMA_TOKEN` still set from the verification step:
-
-```bash
-/usr/bin/security add-generic-password \
-  -a "$(/usr/bin/id -un)" \
-  -s "kimi-swarm-glama" \
-  -w "$GLAMA_TOKEN" \
-  -U >/dev/null
-
-unset GLAMA_TOKEN
-```
-
-Verify that the Keychain item is readable:
-
-```bash
-/usr/bin/security find-generic-password \
-  -a "$(/usr/bin/id -un)" \
-  -s "kimi-swarm-glama" \
-  -w >/dev/null && echo "Keychain credential available."
-```
-
-Use a dedicated/revocable Glama token for this client. Never commit it.
-
-### 3. Install the local wrapper
-
-From a checkout of this repository:
-
-```bash
 mkdir -p ~/.claude/bin
-
-cp scripts/claude-desktop/kimi-mcp-bridge.py ~/.claude/bin/
-cp scripts/claude-desktop/kimi-mcp-desktop.sh ~/.claude/bin/
-
-chmod 700 ~/.claude/bin/kimi-mcp-bridge.py
-chmod 700 ~/.claude/bin/kimi-mcp-desktop.sh
+cp scripts/claude-desktop/kimi-mcp-bridge.py scripts/claude-desktop/kimi-mcp-desktop.sh ~/.claude/bin/
+chmod 700 ~/.claude/bin/kimi-mcp-*
 ```
 
-The launcher looks for Python in common macOS locations. If Python lives
-elsewhere, set `KIMI_MCP_PYTHON` to its absolute path.
-
-### 4. Add the local MCP server to Claude Desktop
-
-Edit:
-
-```text
-~/Library/Application Support/Claude/claude_desktop_config.json
-```
-
-Merge this entry into the existing `mcpServers` object. Do not replace unrelated
-Claude settings or other MCP servers:
+Then merge this entry into `mcpServers` in `~/Library/Application Support/Claude/claude_desktop_config.json` and restart Claude Desktop:
 
 ```json
 {
   "mcpServers": {
-    "kimi-swarm-python-bridge": {
+    "kimi-swarm": {
       "command": "/Users/YOUR_USERNAME/.claude/bin/kimi-mcp-desktop.sh",
-      "args": []
+      "env": { "KIMI_MCP_URL": "https://your-bridge.example.com/mcp" }
     }
   }
 }
 ```
 
-Replace `YOUR_USERNAME` with the macOS account name from:
+Hosted delegations run in the container, so use `cwd: /workspace`; local macOS paths are not visible there.
 
-```bash
-/usr/bin/id -un
-```
-
-Quit Claude Desktop completely with `Cmd-Q`, reopen it, then check
-**Settings → Developer**. `kimi-swarm-python-bridge` should show as running.
-
-### 5. Verify Claude can call the bridge
-
-Ask Claude Desktop to use only `kimi-swarm-python-bridge` and call
-`kimi_bridge_status`. A healthy hosted deployment should report values such as:
-
-```text
-healthzOk: true
-authOk: true
-status: ready
-serverVersion: 0.42.0
-backend: v2
-```
-
-For hosted delegation, use:
-
-```text
-cwd: /workspace
-```
-
-A local macOS path is not automatically visible inside the hosted Glama
-runtime.
-
-In the managed ai& deployment, **omit the `model` field**. The bridge resolves
-the centrally configured Kimi model alias; passing a raw provider model ID such
-as `moonshotai/kimi-k3` can fail because Kimi's profile API expects a configured
-alias.
-
-### Long jobs, durable recovery, and AgentSwarm evidence
+## Long jobs, recovery and AgentSwarm evidence
 
 For long-running work, prefer the asynchronous sequence:
 
@@ -524,8 +350,8 @@ The default SQLite database is:
 ```
 
 `KIMI_JOB_DB_PATH` can override that path. Hosted deployments should place the
-database on persistent storage. The current pilot isolation model is one
-isolated hosted connector/runtime per customer organization; possession of a
+database on persistent storage. Each Docker runtime serves one
+organization; possession of a
 job ID or Kimi session ID is not treated as authorization.
 
 For native AgentSwarm acceptance, the final `kimi_get_handoff` includes a
@@ -541,17 +367,6 @@ swarmEvidence.completedWorkerCount >= 3
 
 The evidence is derived from Kimi wire/session records rather than from the
 model's prose self-report.
-
-### Admin-managed employee deployment
-
-The local bridge can be installed centrally by customer IT/MDM. In that model,
-employees do not need to edit JSON, handle the Glama token, install Kimi Code,
-or know about the stdio-to-HTTP transport. Their visible workflow remains
-Claude Desktop plus the preconfigured Kimi MCP tools.
-
-The Python wrapper is suitable for validation and managed pilots. A signed
-standalone binary can replace it later if an organization does not want to
-depend on a system-managed Python installation.
 
 ## stdio MCP
 
@@ -577,9 +392,9 @@ The container defaults to Streamable HTTP transport for hosted use.
 Validated so far:
 
 - ordinary Kimi inference through ai&
-- `moonshotai/kimi-k3`
+- `zai-org/glm-5.3` (default) and `moonshotai/kimi-k3`
 - native Kimi AgentSwarm
-- four concurrent native workers
+- up to 15 concurrent native workers in a single swarm
 - coordinator and workers all using ai&
 - cancellation
 - authenticated Streamable HTTP MCP
@@ -600,7 +415,7 @@ Validated on the Cloudflare edition ([docs/cloudflare-deploy.md](docs/cloudflare
 - connector handshake and tool list served without waking a sleeping container
 - research, repository, download and coding tasks with web access
 
-See [CHANGELOG.md](CHANGELOG.md) for release notes. OpenWork integration is a later milestone.
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Upstream and license
 

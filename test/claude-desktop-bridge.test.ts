@@ -36,6 +36,7 @@ describe('Claude Desktop bridge and handoff swarm-evidence wiring', () => {
     expect(bridge).toContain('MCP-Protocol-Version');
     expect(bridge).toContain('parse_sse');
     expect(launcher).toContain('security find-generic-password');
-    expect(launcher).toContain('kimi-swarm-glama');
+    expect(launcher).toContain('kimi-swarm-mcp');
+    expect(bridge).not.toContain('glama');
   });
 });

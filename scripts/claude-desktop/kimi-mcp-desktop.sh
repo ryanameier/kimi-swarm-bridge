@@ -4,11 +4,12 @@ set -euo pipefail
 ACCOUNT="$(/usr/bin/id -un)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-export KIMI_MCP_URL="${KIMI_MCP_URL:-https://glama.ai/endpoints/bqnlviwzd5/mcp}"
+: "${KIMI_MCP_URL:?Set KIMI_MCP_URL to your bridge, for example https://mcp.example.com/mcp}"
+export KIMI_MCP_URL
 
-export GLAMA_TOKEN="$(/usr/bin/security find-generic-password \
+export KIMI_MCP_AUTH_TOKEN="$(/usr/bin/security find-generic-password \
   -a "$ACCOUNT" \
-  -s "kimi-swarm-glama" \
+  -s "kimi-swarm-mcp" \
   -w)"
 
 PYTHON3="${KIMI_MCP_PYTHON:-}"
