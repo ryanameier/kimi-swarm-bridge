@@ -22,6 +22,8 @@ export const FILE_HANDOFF_INSTRUCTIONS = `Kimi Swarm runs in the user's own remo
 
 Files in: when the user's request involves files they attached or uploaded (for example under /mnt/user-data/uploads) or files you created, transfer them before delegating. Compute each file's SHA-256, call kimi_create_upload_links once with all of them, then upload each file's exact bytes from code execution or a shell, e.g. curl --fail -X PUT --data-binary @<file> '<uploadUrl>'. Reference the returned /workspace/inputs paths in the Kimi task. Never paste file contents into tool arguments.
 
+Deliverables: when the user wants a file (report, PDF, spreadsheet, chart, slides, code archive), ask Kimi to produce the finished file in /workspace/outputs as part of the task instead of recreating it yourself, then bring it back as described below.
+
 Work: for anything longer than a minute use kimi_delegate_task, then call kimi_wait_until_idle repeatedly while it returns timeout (the job keeps running), then kimi_get_handoff. Kimi saves deliverables in /workspace/outputs.
 
 Files out: when a finished task produced files the user wants, call kimi_create_download_links (defaults to /workspace/outputs), download each URL into your environment (for example into /mnt/user-data/outputs), check the SHA-256, and present the files in the conversation. If you cannot run code, share the links or open kimi_file_panel so the user can download them.`;
