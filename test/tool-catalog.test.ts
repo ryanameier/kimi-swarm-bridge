@@ -73,12 +73,4 @@ describe('MCP tool catalog quality metadata', () => {
     expect(source).toContain('local desktop paths are not automatically available');
   });
 
-  it('ships Glama ownership metadata', () => {
-    const glama = JSON.parse(readFileSync('glama.json', 'utf8')) as {
-      $schema: string;
-      maintainers: string[];
-    };
-    expect(glama.$schema).toBe('https://glama.ai/mcp/schemas/server.json');
-    expect(glama.maintainers).toContain('ryanameier');
-  });
 });

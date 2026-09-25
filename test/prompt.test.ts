@@ -66,3 +66,10 @@ describe('worker split for independent research items', () => {
     expect(prompt).toContain('spread them evenly across the ceiling');
   });
 });
+
+describe('finishing after the swarm', () => {
+  it('keeps the coordinator from handing the finish to another agent', () => {
+    const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 20, concurrency: 20 } });
+    expect(prompt).toContain('do not launch another Agent or AgentSwarm to parse, merge, finish or check their files');
+  });
+});

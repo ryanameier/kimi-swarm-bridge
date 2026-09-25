@@ -128,7 +128,7 @@ ENTRYPOINT ["/container-server/sandbox"]
 CMD []
 
 
-# Default image (self-hosted / Glama).
+# Default image (self-hosted).
 FROM base AS runtime
 
 VOLUME ["/data"]

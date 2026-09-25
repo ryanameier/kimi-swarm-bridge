@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Prompt: after the workers finish, the coordinator writes the summary and recommendations itself
+  instead of launching one more agent to parse and finish the report (seen in a live run: 20
+  workers done in about 2 minutes, then a single finishing agent ran alone for 5+ minutes).
+- `skills/kimi-swarm`: a Claude skill that guides Claude to offer Kimi for big, independent parts of a
+  request in every Claude app, including ones that load connector tools on demand and never show
+  the connector's instructions (the desktop app, Claude Code). Install it once per user.
+- Removed `glama.json` and the last Glama mention; the project is no longer listed on Glama.
 - The "offer Kimi for part of a request" guidance is also in the `kimi_delegate_task` tool
   description, for clients that show tool descriptions but not MCP server instructions.
 
