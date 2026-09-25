@@ -9,6 +9,12 @@
  * Budget: each ai& model request is counted against the user's daily limit
  * (AIAND_DAILY_REQUEST_LIMIT, 0 = unlimited) in their sandbox Durable Object.
  *
+ * Concurrency: model requests from every container pass through one AiandGate,
+ * which keeps the organization under ai&'s in-flight limit (AIAND_CONCURRENCY_LIMIT).
+ *
+ * Timing: each model request, search and (in log/allowlist mode) page fetch is
+ * logged with its duration, for finding where swarm time goes.
+ *
  * Policy (EGRESS_MODE):
  *   open       only the credential hosts are intercepted; everything else goes direct (default)
  *   log        every outbound HTTP(S) request is logged (host, method, sandbox) and allowed
@@ -36,8 +42,15 @@ export interface ModelBudgetCounter {
 	consumeModelRequest(): Promise<ModelBudgetResult>;
 }
 
+/** The AiandGate Durable Object methods the proxy calls. */
+export interface ConcurrencyLimiter {
+	acquire(): Promise<{ id: string; waitMs: number }>;
+	release(id: string): Promise<void>;
+}
+
 export interface EgressEnv {
 	AIAND_API_KEY: string;
+	AIAND_GATE?: DurableObjectNamespace;
 	BRAVE_API_KEY?: string;
 	EGRESS_MODE?: string;
 	EGRESS_ALLOWLIST?: string;
@@ -127,6 +140,21 @@ function logEgress(entry: Record<string, unknown>): void {
 	console.log(JSON.stringify({ event: "egress", ...entry }));
 }
 
+export function gateFor(env: EgressEnv): ConcurrencyLimiter | undefined {
+	return env.AIAND_GATE ? (env.AIAND_GATE.get(env.AIAND_GATE.idFromName("org")) as unknown as ConcurrencyLimiter) : undefined;
+}
+
+/** Calls `done` once the response body has been fully sent (or the stream fails). */
+export function whenBodyDone(response: Response, done: () => void): Response {
+	if (!response.body) {
+		done();
+		return response;
+	}
+	const { readable, writable } = new TransformStream();
+	response.body.pipeTo(writable).catch(() => undefined).finally(done);
+	return new Response(readable, response);
+}
+
 export interface ProxyProps {
 	containerId?: string;
 }
@@ -154,12 +182,38 @@ export async function handleEgress(
 			}
 		}
 		if (mode !== "open") logEgress({ sandbox, host, method: request.method, action: "credential" });
-		const response = await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
+		const model = isModelRequest(request);
+		const gate = model ? gateFor(env) : undefined;
+		const lease = gate ? await gate.acquire() : undefined;
+		const started = Date.now();
+		const release = () => {
+			if (lease) gate!.release(lease.id).catch((error) => console.error("aiand gate release failed", error));
+		};
+		let response: Response;
+		try {
+			response = await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
+		} catch (error) {
+			release();
+			throw error;
+		}
 		// Account-level problems (exhausted credits, revoked key) fail every task; make them visible to admins.
 		if (response.status === 401 || response.status === 402 || response.status === 403) {
 			console.error(JSON.stringify({ event: "egress-upstream-error", sandbox, host, status: response.status }));
 		}
-		return response;
+		const headersMs = Date.now() - started;
+		if (!model) {
+			console.log(JSON.stringify({ event: "timing", kind: host === BRAVE_HOST ? "search" : "aiand-other", sandbox, ms: headersMs, status: response.status }));
+			return response;
+		}
+		const modelName = response.headers.get("x-model") ?? "";
+		const inferenceMs = Number.parseInt(response.headers.get("x-inference-ms") ?? "", 10);
+		return whenBodyDone(response, () => {
+			release();
+			console.log(JSON.stringify({
+				event: "timing", kind: "model", sandbox, model: modelName, status: response.status,
+				waitMs: lease?.waitMs ?? 0, headersMs, ms: Date.now() - started, inferenceMs: Number.isFinite(inferenceMs) ? inferenceMs : undefined,
+			}));
+		});
 	}
 
 	if (mode === "open") return fallback(request);
@@ -169,6 +223,8 @@ export async function handleEgress(
 		return new Response(`Outbound access to ${host} is not allowed by this Kimi Swarm deployment.\n`, { status: 403 });
 	}
 
-	logEgress({ sandbox, host, method: request.method, action: "allowed" });
-	return fallback(request);
+	const started = Date.now();
+	const response = await fallback(request);
+	logEgress({ sandbox, host, method: request.method, action: "allowed", status: response.status, ms: Date.now() - started });
+	return response;
 }

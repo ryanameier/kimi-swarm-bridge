@@ -15,6 +15,7 @@
 //   KIMI_MODEL (default ai& model, default zai-org/glm-5.3; users can switch from chat),
 //   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 20; Kimi uses fewer when a task needs fewer),
 //   KIMI_DAILY_REQUEST_LIMIT (ai& model requests per employee per day, 0 = unlimited, default 3000),
+//   KIMI_AIAND_CONCURRENCY (ai& model requests in flight for the whole organization, your ai& limit; 0 = off, default 100),
 //   KIMI_EGRESS_MODE (open | log | allowlist, default log), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
 // Flags: --dry-run, --rotate-internal (new BRIDGE/COOKIE/ADMIN secrets), --yes (no prompts).
 
@@ -212,6 +213,7 @@ async function main() {
     AIAND_MODEL: process.env.KIMI_MODEL?.trim() || pick('AIAND_MODEL') || 'zai-org/glm-5.3',
     DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 20),
     AIAND_DAILY_REQUEST_LIMIT: countVar('KIMI_DAILY_REQUEST_LIMIT', pick('AIAND_DAILY_REQUEST_LIMIT') ?? 3000),
+    AIAND_CONCURRENCY_LIMIT: countVar('KIMI_AIAND_CONCURRENCY', pick('AIAND_CONCURRENCY_LIMIT') ?? 100),
     EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'log',
     EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
   };
@@ -219,6 +221,7 @@ async function main() {
   ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
   const limit = config.vars.AIAND_DAILY_REQUEST_LIMIT;
   ok(`default model: ${config.vars.AIAND_MODEL}`);
+  ok(`ai& requests in flight for the whole organization: ${config.vars.AIAND_CONCURRENCY_LIMIT === '0' ? 'no limit' : `at most ${config.vars.AIAND_CONCURRENCY_LIMIT}`} (set KIMI_AIAND_CONCURRENCY to your ai& limit)`);
   ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Brave Search only'})` : ''}`);
 
   // Where employee containers may run (data residency / latency).

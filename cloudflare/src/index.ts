@@ -1,13 +1,14 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
-import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type AgentLimits, type RouteDeps } from "./routes";
+import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type AgentLimits, type GateAdmin, type RouteDeps } from "./routes";
 import { backupName, deleteBackup, listBackups } from "./backups";
 import { AIAND_PLACEHOLDER, BRAVE_PLACEHOLDER, CREDENTIAL_HOSTS, egressMode, type ModelBudgetResult } from "./egress";
 import { BROWSER_HOST } from "./browser";
 
 // Outbound interception entrypoint: attaches API keys, enforces budgets and egress policy.
 export { ContainerProxy } from "./container-proxy";
+export { AiandGate } from "./aiand-gate";
 
 const BRIDGE_READY_TIMEOUT_MS = 120_000;
 const SANDBOX_SLEEP_AFTER = "30m";
@@ -378,6 +379,7 @@ KimiSandbox.outboundHandlers = { egress: passThrough };
 
 const deps: RouteDeps<Env> = {
 	sandbox: (env, sandboxId) => getSandbox(env.KIMI_SANDBOX, sandboxId, { sleepAfter: SANDBOX_SLEEP_AFTER }),
+	gate: (env) => env.AIAND_GATE.get(env.AIAND_GATE.idFromName("org")) as unknown as GateAdmin,
 };
 
 export default new OAuthProvider({

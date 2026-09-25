@@ -57,8 +57,16 @@ export interface RouteEnv {
 	OAUTH_PROVIDER?: GrantAdmin;
 }
 
+/** The organization-wide ai& concurrency gate (AiandGate) as the admin API sees it. */
+export interface GateAdmin {
+	stats(): Promise<unknown>;
+	setLimit(limit: number | null): Promise<unknown>;
+	resetStats(): Promise<unknown>;
+}
+
 export interface RouteDeps<E extends RouteEnv = RouteEnv> {
 	sandbox(env: E, sandboxId: string): SandboxApi;
+	gate?(env: E): GateAdmin | undefined;
 }
 
 export function hex(bytes: ArrayBuffer): string {
@@ -293,9 +301,13 @@ function adminAuthorized(request: Request, env: RouteEnv): boolean {
  *   DELETE /admin/sandboxes/<id>            offboard: revoke sign-ins, destroy the container, delete its state and backups
  *   GET    /admin/backups                   all backups in R2 with owner, size and date
  *   DELETE /admin/backups/<backup-id>       delete one backup
+ *   GET    /admin/aiand-limit               organization-wide ai& concurrency: limit, in flight, queued, peak, waits
+ *   POST   /admin/aiand-limit               {"concurrency": n} (0 = off) or null to return to AIAND_CONCURRENCY_LIMIT;
+ *                                           {"resetStats": true} clears peak/wait counters; applies immediately
  */
 export async function handleAdminRoute<E extends RouteEnv>(request: Request, env: E, deps: RouteDeps<E>): Promise<Response | null> {
 	const url = new URL(request.url);
+	if (url.pathname === "/admin/aiand-limit") return handleGateRoute(request, env, deps);
 	const match = /^\/admin\/(sandboxes|backups)(?:\/([^/]+)(?:\/(backup|restart|selftest|limits))?)?$/.exec(url.pathname);
 	if (!match) return null;
 	if (!adminAuthorized(request, env)) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -370,4 +382,20 @@ export async function handleAdminRoute<E extends RouteEnv>(request: Request, env
 	}
 	await sandbox.restartRuntime();
 	return Response.json({ restarted: id });
+}
+
+async function handleGateRoute<E extends RouteEnv>(request: Request, env: E, deps: RouteDeps<E>): Promise<Response> {
+	if (!adminAuthorized(request, env)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+	const gate = deps.gate?.(env);
+	if (!gate) return Response.json({ error: "No ai& gate bound" }, { status: 501 });
+	if (request.method === "GET") return Response.json(await gate.stats());
+	if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
+	const body = (await request.json().catch(() => undefined)) as { concurrency?: unknown; resetStats?: unknown } | null | undefined;
+	if (body === null) return Response.json(await gate.setLimit(null));
+	if (body?.resetStats === true) return Response.json(await gate.resetStats());
+	const value = body?.concurrency;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100_000) {
+		return Response.json({ error: 'Send {"concurrency": <whole number, 0 = off>}, {"resetStats": true} or null.' }, { status: 400 });
+	}
+	return Response.json({ ...((await gate.setLimit(value)) as object), note: "Applies immediately to every employee." });
 }

@@ -155,6 +155,8 @@ describe("handleEgress", () => {
 			host: "pypi.org",
 			method: "GET",
 			action: "allowed",
+			status: 200,
+			ms: expect.any(Number),
 		});
 	});
 
@@ -165,5 +167,56 @@ describe("handleEgress", () => {
 		expect((await handleEgress(new Request("https://example.com/"), env, props, direct)).status).toBe(403);
 		expect(await (await handleEgress(new Request("https://codeload.github.com/x"), env, props, direct)).text()).toBe("direct");
 		expect(await (await handleEgress(chat(), env, props, direct)).text()).toBe("upstream");
+	});
+});
+
+describe("organization-wide ai& concurrency gate", () => {
+	const props = { containerId: "do-id-1" };
+	const direct = async () => new Response("direct");
+
+	function gateEnv() {
+		const calls: string[] = [];
+		const gate = {
+			acquire: vi.fn(async () => {
+				calls.push("acquire");
+				return { id: "l1", waitMs: 25 };
+			}),
+			release: vi.fn(async (id: string) => {
+				calls.push(`release:${id}`);
+			}),
+		};
+		const { env } = makeEnv({ AIAND_GATE: { idFromName: (name: string) => name, get: () => gate } as unknown as DurableObjectNamespace });
+		return { env, gate, calls };
+	}
+
+	it("holds a slot for a model request until its response body has been read, and logs timing", async () => {
+		stubFetch();
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const { env, gate, calls } = gateEnv();
+		const response = await handleEgress(chat(), env, props, direct);
+		expect(gate.acquire).toHaveBeenCalledTimes(1);
+		expect(calls).toEqual(["acquire"]);
+		expect(await response.text()).toBe("upstream");
+		await vi.waitFor(() => expect(calls).toEqual(["acquire", "release:l1"]));
+		const timing = log.mock.calls.map((c) => JSON.parse(c[0] as string)).find((e) => e.event === "timing");
+		expect(timing).toMatchObject({ kind: "model", sandbox: "do-id-1", waitMs: 25, status: 200 });
+	});
+
+	it("releases the slot when the upstream request fails", async () => {
+		vi.stubGlobal("fetch", async () => {
+			throw new Error("network down");
+		});
+		const { env, calls } = gateEnv();
+		await expect(handleEgress(chat(), env, props, direct)).rejects.toThrow("network down");
+		expect(calls).toEqual(["acquire", "release:l1"]);
+	});
+
+	it("does not gate searches or model listing", async () => {
+		stubFetch();
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		const { env, gate } = gateEnv();
+		await handleEgress(new Request("https://api.aiand.com/v1/models"), env, props, direct);
+		await handleEgress(new Request("https://api.search.brave.com/res/v1/web/search?q=x"), env, props, direct);
+		expect(gate.acquire).not.toHaveBeenCalled();
 	});
 });

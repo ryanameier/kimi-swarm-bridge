@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Organization-wide ai& concurrency limit: every employee's model calls pass through one
+  `AiandGate` Durable Object that keeps requests in flight under `AIAND_CONCURRENCY_LIMIT`
+  (setup `KIMI_AIAND_CONCURRENCY`, default 100 = ai&'s starting limit, 0 = off). Extra requests
+  queue instead of getting HTTP 429. `GET`/`POST /admin/aiand-limit` shows usage and changes the
+  limit live.
+- Timing logs (`{"event":"timing"}`) for every model request (queue wait, time to first byte,
+  total, ai& inference time), search, browser render and, in log/allowlist mode, page fetch.
+- The coordinator writes the report frame and runs `kimi-assemble` in one command.
 - Faster swarms: the coordinator is shown the exact AgentSwarm call shape (its first launch was
   often rejected and retried), workers get a soft tool-call budget by depth (5 / 8 / 14) so one
   worker can't hold up the swarm, and `read_page` stops waiting for a slow page 8s after half the

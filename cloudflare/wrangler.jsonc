@@ -23,13 +23,22 @@
 		}
 	],
 	"durable_objects": {
-		"bindings": [{ "class_name": "KimiSandbox", "name": "KIMI_SANDBOX" }]
+		"bindings": [
+			{ "class_name": "KimiSandbox", "name": "KIMI_SANDBOX" },
+			// One per deployment: keeps all employees under ai&'s in-flight request limit.
+			{ "class_name": "AiandGate", "name": "AIAND_GATE" }
+		]
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] },
+		{ "tag": "v2", "new_sqlite_classes": ["AiandGate"] }
+	],
 	"r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "kimi-swarm-backups" }],
 	"vars": {
 		"ORGANIZATION_ID": "default", "AIAND_MODEL": "zai-org/glm-5.3", "SWARM_CONCURRENCY": "20", "MAX_AGENTS_CAP": "20", "DEFAULT_MAX_AGENTS": "20",
 		"AIAND_DAILY_REQUEST_LIMIT": "3000",
+		// Simultaneous ai& model requests for the whole organization (ai& X-RateLimit-Limit); 0 = off.
+		"AIAND_CONCURRENCY_LIMIT": "100",
 		"EGRESS_MODE": "log",
 		"EGRESS_ALLOWLIST": "",
 		"BACKUP_MAX_MB": "4096"

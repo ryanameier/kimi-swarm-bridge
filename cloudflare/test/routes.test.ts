@@ -336,3 +336,34 @@ describe("agent limit headers", () => {
 		expect(seen.at(-1)?.headers.get("x-kimi-default-max-agents")).toBe("4");
 	});
 });
+
+describe("ai& concurrency admin endpoint", () => {
+	const post = (body: unknown, token = ADMIN_TOKEN) =>
+		new Request("https://kimi.example.com/admin/aiand-limit", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+
+	function gateDeps() {
+		const gate = {
+			stats: vi.fn(async () => ({ limit: 100, active: 0 })),
+			setLimit: vi.fn(async (limit: number | null) => ({ limit: limit ?? 100 })),
+			resetStats: vi.fn(async () => ({ peakActive: 0 })),
+		};
+		return { gate, deps: { sandbox: () => makeSandbox().sandbox, gate: () => gate } };
+	}
+
+	it("shows, sets, clears and resets the organization-wide limit", async () => {
+		const { gate, deps } = gateDeps();
+		const get = new Request("https://kimi.example.com/admin/aiand-limit", { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } });
+		expect(await (await handleAdminRoute(get, makeEnv(), deps as never))!.json()).toEqual({ limit: 100, active: 0 });
+		expect(await (await handleAdminRoute(post({ concurrency: 1000 }), makeEnv(), deps as never))!.json()).toMatchObject({ limit: 1000 });
+		await handleAdminRoute(post(null), makeEnv(), deps as never);
+		await handleAdminRoute(post({ resetStats: true }), makeEnv(), deps as never);
+		expect(gate.setLimit.mock.calls).toEqual([[1000], [null]]);
+		expect(gate.resetStats).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects bad values and unauthenticated calls", async () => {
+		const { deps } = gateDeps();
+		expect((await handleAdminRoute(post({ concurrency: -1 }), makeEnv(), deps as never))!.status).toBe(400);
+		expect((await handleAdminRoute(post({ concurrency: 5 }, "wrong"), makeEnv(), deps as never))!.status).toBe(401);
+	});
+});

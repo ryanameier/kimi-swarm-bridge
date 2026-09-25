@@ -88,7 +88,7 @@ to turn off web search), `ACCESS_TEAM`, `ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRE
 `KIMI_WORKER_NAME`, `KIMI_REGIONS` (e.g. `ENAM,WNAM`), `KIMI_JURISDICTION` (`eu` or
 `fedramp`), plus the limits and policies below (`KIMI_SWARM_CONCURRENCY`,
 `KIMI_MAX_AGENTS_CAP`, `KIMI_DEFAULT_MAX_AGENTS`, `KIMI_DAILY_REQUEST_LIMIT`,
-`KIMI_EGRESS_MODE`, `KIMI_EGRESS_ALLOWLIST`). Re-runs keep previous values unless a variable
+`KIMI_AIAND_CONCURRENCY`, `KIMI_EGRESS_MODE`, `KIMI_EGRESS_ALLOWLIST`). Re-runs keep previous values unless a variable
 overrides them. Run `npm run setup -- --yes`. `--rotate-internal` replaces the generated
 `BRIDGE_TOKEN`, `COOKIE_ENCRYPTION_KEY` and `ADMIN_TOKEN`.
 
@@ -130,19 +130,21 @@ share download links.
   soon as a running worker finishes. Keep it at least as high as the ceiling, or a higher
   ceiling adds workers without adding speed. It is read when a container starts. Each
   employee's container has its own limit.
-- **Rate limits.** ai& reports `X-RateLimit-Limit` (100 at the time of writing). Kimi starts
-  workers in batches, retries HTTP 429 with exponential backoff, and temporarily lowers its
-  concurrency when rate-limited. The limit is per ai& organization and shared by all its keys:
-  a 15-agent research task made about 40 requests a minute, so two or three large swarms at the
-  same time already reach it. Lower `SWARM_CONCURRENCY` or ask ai& for a higher limit if many
-  employees run large swarms together.
+- **ai& rate limit (organization-wide).** ai& limits how many model requests an organization
+  has in flight at once, shared by all its keys; responses report it as `X-RateLimit-Limit`
+  (100 on a new account, 1000 after the first payment at the time of writing). The Worker keeps
+  the whole deployment under `AIAND_CONCURRENCY_LIMIT` (setup: `KIMI_AIAND_CONCURRENCY`,
+  default 100, `0` = off): extra requests wait their turn instead of failing with HTTP 429 and
+  Kimi's backoff. Set it to your ai& limit, or change it live with no restart:
+  `POST /admin/aiand-limit` with `{"concurrency": 1000}` (`null` returns to the configured
+  value). `GET /admin/aiand-limit` shows requests in flight, queued, the peak and total waiting.
 - **Daily budget per employee.** `AIAND_DAILY_REQUEST_LIMIT` (3000) caps ai& model requests
   per employee per UTC day; `0` means unlimited. The Worker counts every model call on its way
   out; over the limit, Kimi gets a quota error and reports it instead of retrying.
   `GET /admin/sandboxes/<id>` shows today's count.
 
-Set these with `KIMI_SWARM_CONCURRENCY`, `KIMI_MAX_AGENTS_CAP`, `KIMI_DEFAULT_MAX_AGENTS` and
-`KIMI_DAILY_REQUEST_LIMIT` when running `npm run setup`.
+Set these with `KIMI_SWARM_CONCURRENCY`, `KIMI_MAX_AGENTS_CAP`, `KIMI_DEFAULT_MAX_AGENTS`,
+`KIMI_DAILY_REQUEST_LIMIT` and `KIMI_AIAND_CONCURRENCY` when running `npm run setup`.
 
 ## Outbound internet access
 
@@ -207,6 +209,7 @@ curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
   | `DELETE /admin/sandboxes/<id>` | offboard: revoke the employee's sign-ins, destroy their container, delete its state and backups |
   | `GET /admin/backups` | every backup in R2 with owner sandbox, size and date |
   | `DELETE /admin/backups/<backup-id>` | delete one backup |
+  | `GET`/`POST /admin/aiand-limit` | organization-wide ai& requests in flight: see usage, set `{"concurrency": n}`, `null` to reset, `{"resetStats": true}` |
 
   Sandbox IDs are `user-` + the first 40 hex characters of SHA-256 of the Access subject;
   `GET /admin/sandboxes` lists them with names. To remove an employee, take them out of the
