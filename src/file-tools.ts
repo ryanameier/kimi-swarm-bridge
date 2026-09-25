@@ -37,6 +37,16 @@ export const FILE_TOOL_METADATA = {
     description: 'Create short-lived HTTPS download links for files in the hosted Kimi workspace. Call this after a Kimi task finishes to collect its deliverables: with no arguments it covers everything in /workspace/outputs; pass paths for specific files. Returns each file\'s URL, name, size, and SHA-256. Download the files into your environment, verify the hashes, and present them to the user in the conversation. Paths outside /workspace are refused. Links stay valid for one hour.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
   },
+  kimi_create_upload_link: {
+    title: 'Create Kimi File Upload Link',
+    description: 'Single-file form of kimi_create_upload_links (kept for clients with cached tool lists). Creates one single-use HTTPS link that places a file into /workspace/inputs; PUT the raw bytes to uploadUrl from code execution or a shell, then give Kimi the destination path. Prefer kimi_create_upload_links for several files.',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  kimi_create_download_link: {
+    title: 'Create Kimi File Download Link',
+    description: 'Single-file form of kimi_create_download_links (kept for clients with cached tool lists). Creates a one-hour HTTPS link, with size and SHA-256, for one file in the Kimi workspace; download it, verify the hash, and present the file to the user. Prefer kimi_create_download_links to collect all deliverables from /workspace/outputs.',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
+  },
   kimi_list_files: {
     title: 'List Kimi Workspace Files',
     description: 'List files in the hosted Kimi workspace (default /workspace, recursively, skipping .git and dependency folders) with sizes and modification times. Use it to confirm uploads arrived or to find deliverables outside /workspace/outputs. This tool is read-only and does not contact Kimi.',
@@ -90,6 +100,32 @@ export function registerFileTools(server: McpServer, config: FileTransferConfig)
       },
     },
     async (input) => runToolHandler(() => createDownloadLinks(config, input)),
+  );
+
+  // Stable single-file names: clients cache tool lists, so renamed tools would
+  // fail until they reconnect.
+  server.registerTool(
+    'kimi_create_upload_link',
+    {
+      ...FILE_TOOL_METADATA.kimi_create_upload_link,
+      inputSchema: {
+        filename: z.string().describe('Original file name including extension, for example report.pdf. Directory parts are stripped.'),
+        sha256: z.string().optional().describe('Lowercase hex SHA-256 of the file; the upload is rejected unless the received bytes match.'),
+        maxBytes: z.number().optional().describe('Optional size cap in bytes; cannot exceed the deployment limit.'),
+      },
+    },
+    async (input) => runToolHandler(() => createUploadLink(config, input)),
+  );
+
+  server.registerTool(
+    'kimi_create_download_link',
+    {
+      ...FILE_TOOL_METADATA.kimi_create_download_link,
+      inputSchema: {
+        path: z.string().describe('File path inside the Kimi workspace, absolute or relative to /workspace.'),
+      },
+    },
+    async (input) => runToolHandler(() => createDownloadLink(config, input.path)),
   );
 
   server.registerTool(
