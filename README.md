@@ -15,7 +15,7 @@ The project began as a fork of [`ximenchuifeng/codex-kimi-bridge`](https://githu
 
 ## Organization deployment
 
-To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md). Share [docs/using-kimi-swarm.md](docs/using-kimi-swarm.md) with employees.
+To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md). Share [docs/using-kimi-swarm.md](docs/using-kimi-swarm.md) with employees. Optionally share the [Kimi Swarm skill](skills/kimi-swarm/SKILL.md) too: with it, Claude offers to hand big, independent parts of a request to Kimi without being asked.
 
 ## Benchmarks
 

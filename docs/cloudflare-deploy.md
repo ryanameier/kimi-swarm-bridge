@@ -102,6 +102,12 @@ Give employees `cloudflare/employee-guide.<worker-name>.md`, which setup writes 
 one-page [using-kimi-swarm.md](using-kimi-swarm.md) guide with your connector URL and domain
 filled in.
 
+Optional, recommended: share the Kimi Swarm skill (`skills/kimi-swarm/`, packaged as
+`kimi-swarm.zip` on each GitHub release). Claude apps that load connector tools on demand (the
+desktop app, Claude Code) don't show the connector's own guidance to the model, so without the
+skill Claude only uses Kimi when asked. With it, Claude offers Kimi for big, independent parts of
+a request. Build the zip with `cd skills && zip -r kimi-swarm.zip kimi-swarm`.
+
 ## 2. Add the connector in Claude
 
 Claude → **Settings → Connectors → Add custom connector** →

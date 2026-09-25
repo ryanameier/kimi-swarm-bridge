@@ -15,7 +15,14 @@ chat.
    the domain your admin gave you under *Additional allowed domains*. This lets Claude hand your
    attachments to Kimi. On company plans your admin has already done this.
 
-That's it. Nothing to install.
+That's it. Nothing else is required.
+
+**Optional: have Claude suggest Kimi on its own.** Install the Kimi Swarm skill once: download
+`kimi-swarm.zip` (your admin shares it, or get it from the project's GitHub release page) and upload it under
+**Customize → Skills** in Claude. With it, Claude offers to hand big, independent parts of your
+requests to Kimi ("Should I hand the 20-vendor comparison to Kimi Swarm so it runs while I write
+the summary?") even when you don't mention Kimi. In Claude Code, put the `kimi-swarm` folder in
+`~/.claude/skills/` instead.
 
 ## Ask for work
 
