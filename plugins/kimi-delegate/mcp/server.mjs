@@ -22443,6 +22443,25 @@ import path2 from "node:path";
 import { readFile as readFile2, readdir } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
+var EMPTY_USAGE = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
+function num(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+function sumUsage(records) {
+  const total = { ...EMPTY_USAGE };
+  for (const record2 of records) {
+    if (record2.type !== "usage.record" || !isRecord(record2.usage)) continue;
+    total.inputTokens += num(record2.usage.inputOther);
+    total.cachedInputTokens += num(record2.usage.inputCacheRead);
+    total.cacheWriteTokens += num(record2.usage.inputCacheCreation);
+    total.outputTokens += num(record2.usage.output);
+  }
+  return total;
+}
+function estimateCostUsd(usage, pricing) {
+  const cost = ((usage.inputTokens + usage.cacheWriteTokens) * pricing.inputPer1M + usage.cachedInputTokens * pricing.cachedInputPer1M + usage.outputTokens * pricing.outputPer1M) / 1e6;
+  return Math.round(cost * 1e4) / 1e4;
+}
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -22472,6 +22491,7 @@ function summarizeInference(records, fallbackAgentId) {
   return {
     agentId: typeof agentId === "string" ? agentId : fallbackAgentId,
     requestCount: requests.length,
+    usage: sumUsage(records),
     providers: strings("provider"),
     models: strings("model"),
     modelAliases: strings("modelAlias"),
@@ -22564,8 +22584,10 @@ async function readSwarmEvidence(input) {
       workerOutcomes.set(agentId, outcome);
     }
   }
+  const agentDirs = (await readdir(agentsDir, { withFileTypes: true }).catch(() => [])).filter((entry) => entry.isDirectory() && entry.name !== "main").map((entry) => entry.name);
+  const workerIds = [.../* @__PURE__ */ new Set([...workerOutcomes.keys(), ...agentDirs])].sort();
   const workers = [];
-  for (const agentId of [...workerOutcomes.keys()].sort()) {
+  for (const agentId of workerIds) {
     let records = [];
     try {
       records = await parseJsonLines(join4(agentsDir, agentId, "wire.jsonl"));
@@ -22577,6 +22599,19 @@ async function readSwarmEvidence(input) {
       ...outcome !== void 0 ? { outcome } : {}
     });
   }
+  const coordinator = summarizeInference(mainRecords, "main");
+  const everyone = [coordinator, ...workers];
+  const usage = everyone.reduce((total, agent) => ({
+    inputTokens: total.inputTokens + agent.usage.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + agent.usage.cachedInputTokens,
+    cacheWriteTokens: total.cacheWriteTokens + agent.usage.cacheWriteTokens,
+    outputTokens: total.outputTokens + agent.usage.outputTokens
+  }), { ...EMPTY_USAGE });
+  const totalUsage = {
+    requestCount: everyone.reduce((count, agent) => count + agent.requestCount, 0),
+    ...usage,
+    ...input.pricing ? { estimatedCostUsd: estimateCostUsd(usage, input.pricing) } : {}
+  };
   return {
     available: true,
     source: "kimi_wire_v1",
@@ -22585,9 +22620,51 @@ async function readSwarmEvidence(input) {
     requestedWorkerCount,
     workerCount: workers.length,
     completedWorkerCount: workers.filter((worker) => worker.outcome === "completed").length,
-    coordinator: summarizeInference(mainRecords, "main"),
-    workers
+    coordinator,
+    workers,
+    totalUsage
   };
+}
+
+// src/model-pricing.ts
+var CACHE_MS = 60 * 60 * 1e3;
+var cached2;
+function price(value) {
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : typeof value === "number" ? value : NaN;
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function parseModelPricing(listing, model) {
+  const data = listing?.data;
+  if (!Array.isArray(data)) return void 0;
+  const entry = data.find((item) => item?.id === model);
+  if (!entry) return void 0;
+  const inputPer1M = price(entry.input_per_1m);
+  const outputPer1M = price(entry.output_per_1m);
+  if (inputPer1M === void 0 || outputPer1M === void 0) return void 0;
+  return { inputPer1M, outputPer1M, cachedInputPer1M: price(entry.cached_input_per_1m) ?? inputPer1M };
+}
+async function fetchPricing(baseUrl, apiKey, model) {
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5e3)
+    });
+    if (!response.ok) return void 0;
+    return parseModelPricing(await response.json(), model);
+  } catch {
+    return void 0;
+  }
+}
+function getModelPricing(env = process.env) {
+  const baseUrl = env.KIMI_MODEL_BASE_URL;
+  const apiKey = env.KIMI_MODEL_API_KEY;
+  const model = env.KIMI_MODEL_NAME;
+  if (!baseUrl || !apiKey || !model) return Promise.resolve(void 0);
+  const key = `${baseUrl}|${model}`;
+  if (!cached2 || cached2.key !== key || Date.now() - cached2.at > CACHE_MS) {
+    cached2 = { at: Date.now(), key, pricing: fetchPricing(baseUrl, apiKey, model) };
+  }
+  return cached2.pricing;
 }
 
 // src/tools.ts
@@ -22930,7 +23007,8 @@ function createToolHandlers(deps) {
     };
     const swarmEvidence = delegated.swarmModeActivated === true ? await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
-      sessionId: delegated.sessionId
+      sessionId: delegated.sessionId,
+      pricing: await getModelPricing()
     }) : void 0;
     const swarmFields = {
       ...delegated.swarmModeActivated !== void 0 ? { swarmModeActivated: delegated.swarmModeActivated } : {},
@@ -23395,7 +23473,8 @@ function createToolHandlers(deps) {
     const handoff = await handlers.kimi_get_handoff(input);
     const swarmEvidence = await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
-      sessionId: input.sessionId
+      sessionId: input.sessionId,
+      pricing: await getModelPricing()
     });
     const result = {
       ...handoff,
@@ -23896,8 +23975,8 @@ var KimiPreflight = class {
   lastSuccessStatus;
   lastSuccessAt;
   async ensureReady() {
-    const cached2 = this.readCache();
-    if (cached2) return cached2;
+    const cached3 = this.readCache();
+    if (cached3) return cached3;
     let status = await this.checkOnce();
     if (!status.healthzOk) {
       if (!this.config.autoStart) {
