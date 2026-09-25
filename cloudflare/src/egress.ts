@@ -2,7 +2,7 @@
  * Outbound traffic from employee containers.
  *
  * Credentials: containers only hold placeholder API keys. Requests to the ai&
- * and Firecrawl APIs are intercepted (HTTP and HTTPS; the container trusts the
+ * and Brave Search APIs are intercepted (HTTP and HTTPS; the container trusts the
  * Cloudflare interception CA) and the real key is attached here, so a prompt-
  * injected agent cannot read or exfiltrate it.
  *
@@ -16,12 +16,12 @@
  */
 
 export const AIAND_HOST = "api.aiand.com";
-export const FIRECRAWL_HOST = "api.firecrawl.dev";
-export const CREDENTIAL_HOSTS = [AIAND_HOST, FIRECRAWL_HOST] as const;
+export const BRAVE_HOST = "api.search.brave.com";
+export const CREDENTIAL_HOSTS = [AIAND_HOST, BRAVE_HOST] as const;
 
 /** What containers see instead of real keys. */
 export const AIAND_PLACEHOLDER = "aiand-key-held-by-worker";
-export const FIRECRAWL_PLACEHOLDER = "fc-key-held-by-worker";
+export const BRAVE_PLACEHOLDER = "brave-key-held-by-worker";
 
 export type EgressMode = "open" | "log" | "allowlist";
 
@@ -38,7 +38,7 @@ export interface ModelBudgetCounter {
 
 export interface EgressEnv {
 	AIAND_API_KEY: string;
-	FIRECRAWL_API_KEY?: string;
+	BRAVE_API_KEY?: string;
 	EGRESS_MODE?: string;
 	EGRESS_ALLOWLIST?: string;
 	KIMI_SANDBOX: DurableObjectNamespace;
@@ -74,11 +74,33 @@ export function effectiveAllowlist(env: { EGRESS_ALLOWLIST?: string }): string[]
 
 export function withCredential(request: Request, env: EgressEnv): Request | null {
 	const host = new URL(request.url).hostname;
-	const key = host === AIAND_HOST ? env.AIAND_API_KEY : host === FIRECRAWL_HOST ? env.FIRECRAWL_API_KEY : undefined;
-	if (!key || key === "disabled") return null;
 	const headers = new Headers(request.headers);
-	headers.set("authorization", `Bearer ${key}`);
+	if (host === AIAND_HOST && env.AIAND_API_KEY) {
+		headers.set("authorization", `Bearer ${env.AIAND_API_KEY}`);
+	} else if (host === BRAVE_HOST && env.BRAVE_API_KEY && env.BRAVE_API_KEY !== "disabled") {
+		headers.set("x-subscription-token", env.BRAVE_API_KEY);
+	} else {
+		return null;
+	}
 	return new Request(request, { headers });
+}
+
+const SEARCH_RETRIES = 3;
+const MAX_RETRY_WAIT_MS = 10_000;
+
+/**
+ * Search requests are retried here on HTTP 429 (honouring Retry-After), so
+ * workers do not spend model steps sleeping. Model requests are not retried:
+ * Kimi already backs off on its own.
+ */
+async function fetchWithRetry(request: Request, retry: boolean, sleep: (ms: number) => Promise<void>): Promise<Response> {
+	for (let attempt = 0; ; attempt += 1) {
+		const response = await fetch(retry ? request.clone() : request);
+		if (!retry || response.status !== 429 || attempt >= SEARCH_RETRIES) return response;
+		const retryAfter = Number.parseFloat(response.headers.get("retry-after") ?? "");
+		const wait = Number.isFinite(retryAfter) ? retryAfter * 1000 : 500 * 2 ** attempt;
+		await sleep(Math.min(Math.max(wait, 100), MAX_RETRY_WAIT_MS));
+	}
 }
 
 /** Model calls that count against the daily budget (not model listing etc.). */
@@ -114,6 +136,7 @@ export async function handleEgress(
 	env: EgressEnv,
 	props: ProxyProps,
 	fallback: (request: Request) => Promise<Response>,
+	sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const host = url.hostname.toLowerCase();
@@ -131,7 +154,7 @@ export async function handleEgress(
 			}
 		}
 		if (mode !== "open") logEgress({ sandbox, host, method: request.method, action: "credential" });
-		const response = await fetch(credentialed);
+		const response = await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
 		// Account-level problems (exhausted credits, revoked key) fail every task; make them visible to admins.
 		if (response.status === 401 || response.status === 402 || response.status === 403) {
 			console.error(JSON.stringify({ event: "egress-upstream-error", sandbox, host, status: response.status }));

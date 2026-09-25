@@ -208,12 +208,14 @@ The `codex-kimi-bridge-local` marketplace id is retained for compatibility with 
 - `src/index.ts`: `KimiSandbox` Durable Object (restore, supervisor start, backups, budget counter, self-test) and the OAuth provider wiring.
 - `src/routes.ts`: MCP, signed file-link and admin routes, with the sandbox injected for tests.
 - `src/mcp-session.ts`: the Worker owns MCP sessions (`ks1.` ids) and serves initialize/tools/list from a KV snapshot; the bridge runs in stateless mode (`x-kimi-mcp-mode: stateless`, `x-kimi-client-name`).
-- `src/egress.ts` + `src/container-proxy.ts`: outbound interception; attaches the ai&/Firecrawl keys, enforces the daily budget and `EGRESS_MODE`.
+- `src/egress.ts` + `src/container-proxy.ts`: outbound interception; attaches the ai&/Brave keys (Brave requests retried on 429), enforces the daily budget and `EGRESS_MODE`.
+- `src/browser.ts`: headless page rendering (Cloudflare Browser Rendering) for `http://browser.internal/render`.
+- Root `src/web-tools.ts`: the `web` MCP server Kimi uses (`web_search` via Brave, `read_page` with a small reader model).
 - `scripts/setup.mjs` (`npm run setup`) and `scripts/smoke.mjs` (`npm run smoke`).
 
 Invariants:
 
-- Real API keys never enter containers; containers see `AIAND_PLACEHOLDER`/`FIRECRAWL_PLACEHOLDER`.
+- Real API keys never enter containers; containers see `AIAND_PLACEHOLDER`/`BRAVE_PLACEHOLDER`.
 - Keep MCP tool names stable. claude.ai caches tool lists; renamed tools keep compatibility aliases.
 - claude.ai drops MCP calls after about 240 s, so waits are clamped by `KIMI_MAX_WAIT_MS`.
 - Register outbound handlers by assignment (`KimiSandbox.outboundByHost = …`); `static` class fields bypass the SDK setters.

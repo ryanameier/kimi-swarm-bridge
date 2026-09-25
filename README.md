@@ -566,7 +566,8 @@ Validated on the Cloudflare edition ([docs/cloudflare-deploy.md](docs/cloudflare
 - per-employee sign-in (Cloudflare Access OIDC) and isolated containers
 - files in and out of Claude chats through signed, single-use links
 - persistence of jobs, sessions and workspace files across container restarts
-- ai& and Firecrawl keys held by the Worker, never inside containers
+- ai& and Brave Search keys held by the Worker, never inside containers
+- web research via Brave Search and a page reader that returns only relevant facts
 - per-employee daily ai& request budget and optional outbound logging/allowlist
 - per-employee agent ceiling set from chat
 - connector handshake and tool list served without waking a sleeping container

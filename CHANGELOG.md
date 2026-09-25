@@ -15,9 +15,13 @@
   at 4 agents with a user-adjustable cap of 20.
 - Failed tasks report why (`failureReason`, from Kimi's turn record), for example exhausted model
   credits.
-- Lower token use per step: only the Firecrawl tools research needs are loaded
-  (`KIMI_FIRECRAWL_TOOLS`), Kimi compacts context at a 128k window (`KIMI_CONTEXT_WINDOW`), and
-  workers keep notes and return concise summaries.
+- Web research replaces Firecrawl: `web_search` (Brave Search API, `BRAVE_API_KEY`) and
+  `read_page`, which fetches a page and returns only the requested facts via a small reader model
+  (`KIMI_READER_MODEL`), with Cloudflare Browser Rendering for JavaScript pages. The Worker
+  attaches the Brave key and retries Brave rate limits. Firecrawl and `FIRECRAWL_API_KEY` are
+  removed.
+- Lower token use per step: small web tool definitions, Kimi compacts context at a 128k window
+  (`KIMI_CONTEXT_WINDOW`), and workers keep notes and return concise summaries.
 - `docs/using-kimi-swarm.md`: a one-page guide for employees.
 
 ## 0.4.0 (2026-09-25)

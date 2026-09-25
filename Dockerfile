@@ -113,9 +113,9 @@ RUN apt-get update \
        squashfuse \
     && rm -rf /var/lib/apt/lists/*
 
-# Public Internet tools for Kimi workers. The supervisor registers it in
-# $KIMI_CODE_HOME/mcp.json when FIRECRAWL_API_KEY is provided.
-RUN npm install --global firecrawl-mcp@3.25.4
+# Web research tools (web_search, read_page) ship in /app/dist/web-tools.js;
+# JavaScript-heavy pages are rendered by Cloudflare Browser Rendering.
+ENV KIMI_BROWSER_RENDERING=1
 
 COPY --from=cloudflare-sandbox /container-server /container-server
 

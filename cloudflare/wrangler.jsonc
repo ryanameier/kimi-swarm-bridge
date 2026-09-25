@@ -10,6 +10,8 @@
 	"observability": { "enabled": true },
 	// Keys the cached MCP handshake/tool-list snapshot to the deployed version.
 	"version_metadata": { "binding": "CF_VERSION_METADATA" },
+	// Headless browser for JavaScript-heavy pages (read_page fallback).
+	"browser": { "binding": "BROWSER" },
 	"containers": [
 		{
 			"class_name": "KimiSandbox",
@@ -36,7 +38,7 @@
 	"secrets": {
 		"required": [
 			"AIAND_API_KEY",
-			"FIRECRAWL_API_KEY",
+			"BRAVE_API_KEY",
 			"BRIDGE_TOKEN",
 			"ACCESS_CLIENT_ID",
 			"ACCESS_CLIENT_SECRET",

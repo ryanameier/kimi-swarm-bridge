@@ -14,7 +14,7 @@ function makeEnv(overrides: Partial<EgressEnv> = {}, budget: ModelBudgetResult =
 	const idFromString = vi.fn((id: string) => id);
 	const env = {
 		AIAND_API_KEY: "real-aiand-key",
-		FIRECRAWL_API_KEY: "real-firecrawl-key",
+		BRAVE_API_KEY: "real-brave-key",
 		KIMI_SANDBOX: { idFromString, get: () => ({ consumeModelRequest }) } as unknown as DurableObjectNamespace,
 		...overrides,
 	} satisfies EgressEnv;
@@ -58,7 +58,7 @@ describe("egress policy helpers", () => {
 	it("counts only model calls", () => {
 		expect(isModelRequest(chat())).toBe(true);
 		expect(isModelRequest(new Request("https://api.aiand.com/v1/models"))).toBe(false);
-		expect(isModelRequest(new Request("https://api.firecrawl.dev/v2/scrape", { method: "POST" }))).toBe(false);
+		expect(isModelRequest(new Request("https://api.search.brave.com/res/v1/web/search?q=x"))).toBe(false);
 	});
 });
 
@@ -76,12 +76,39 @@ describe("handleEgress", () => {
 		expect(idFromString).toHaveBeenCalledWith("do-id-1");
 	});
 
-	it("attaches the Firecrawl key without counting it", async () => {
+	it("attaches the Brave key as a subscription token without counting it", async () => {
 		stubFetch();
 		const { env, consumeModelRequest } = makeEnv();
-		await handleEgress(new Request("https://api.firecrawl.dev/v2/scrape", { method: "POST", body: "{}" }), env, props, direct);
-		expect(upstream[0].headers.get("authorization")).toBe("Bearer real-firecrawl-key");
+		await handleEgress(new Request("https://api.search.brave.com/res/v1/web/search?q=x", { headers: { "x-subscription-token": "placeholder" } }), env, props, direct);
+		expect(upstream[0].headers.get("x-subscription-token")).toBe("real-brave-key");
+		expect(upstream[0].headers.get("authorization")).toBeNull();
 		expect(consumeModelRequest).not.toHaveBeenCalled();
+	});
+
+	it("retries search requests on 429 so workers never sleep", async () => {
+		let calls = 0;
+		vi.stubGlobal("fetch", async () => {
+			calls += 1;
+			return calls < 3 ? new Response("slow down", { status: 429, headers: { "retry-after": "1" } }) : new Response("results");
+		});
+		const waits: number[] = [];
+		const { env } = makeEnv();
+		const response = await handleEgress(new Request("https://api.search.brave.com/res/v1/web/search?q=x"), env, props, direct, async (ms) => {
+			waits.push(ms);
+		});
+		expect(await response.text()).toBe("results");
+		expect(waits).toEqual([1000, 1000]);
+	});
+
+	it("does not retry model requests (Kimi backs off itself)", async () => {
+		let calls = 0;
+		vi.stubGlobal("fetch", async () => {
+			calls += 1;
+			return new Response("limited", { status: 429 });
+		});
+		const { env } = makeEnv();
+		expect((await handleEgress(chat(), env, props, direct, async () => {})).status).toBe(429);
+		expect(calls).toBe(1);
 	});
 
 	it("blocks model calls over the daily budget with a quota error", async () => {
@@ -102,10 +129,10 @@ describe("handleEgress", () => {
 		expect(JSON.parse(error.mock.calls[0][0] as string)).toMatchObject({ event: "egress-upstream-error", host: "api.aiand.com", status: 402 });
 	});
 
-	it("never forwards a disabled Firecrawl key", async () => {
+	it("never forwards a disabled Brave key", async () => {
 		stubFetch();
-		const { env } = makeEnv({ FIRECRAWL_API_KEY: "disabled" });
-		await handleEgress(new Request("https://api.firecrawl.dev/v2/scrape"), env, props, direct);
+		const { env } = makeEnv({ BRAVE_API_KEY: "disabled" });
+		await handleEgress(new Request("https://api.search.brave.com/res/v1/web/search?q=x"), env, props, direct);
 		expect(upstream).toHaveLength(0);
 		expect(direct).toHaveBeenCalled();
 	});

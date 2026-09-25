@@ -272,7 +272,7 @@ function adminAuthorized(request: Request, env: RouteEnv): boolean {
  *   GET    /admin/sandboxes                 signed-in employees (sandbox id, name, grants)
  *   GET    /admin/sandboxes/<id>            backup status and today's ai& usage
  *   POST   /admin/sandboxes/<id>/backup     back up now
- *   POST   /admin/sandboxes/<id>/selftest   fixed checks: no real keys in the container; ai&, Firecrawl, web, git, pip, npm reachable
+ *   POST   /admin/sandboxes/<id>/selftest   fixed checks: no real keys in the container; ai&, Brave search, browser rendering, web, git, pip, npm
  *   POST   /admin/sandboxes/<id>/restart    stop the container (applies new images; next request restores)
  *   DELETE /admin/sandboxes/<id>            offboard: revoke sign-ins, destroy the container, delete its state and backups
  *   GET    /admin/backups                   all backups in R2 with owner, size and date

@@ -9,19 +9,21 @@ Claude (web / desktop / Claude Code)
    ▼
 Cloudflare Worker ── Cloudflare Access (your identity provider or one-time PIN)
    │  verified employee → one Sandbox per employee
-   │  holds the ai& / Firecrawl keys; answers the MCP handshake itself
+   │  holds the ai& / Brave Search keys; answers the MCP handshake itself
    ▼
 Sandbox container (per employee, placeholder keys only)
    ├─ Kimi Code 0.42 + native AgentSwarm
    ├─ MCP bridge (this repo) + file transfer
-   ├─ firecrawl-mcp (web search / scrape for workers)
+   ├─ web tools: web_search (Brave) and read_page (fetch + small reader model;
+   │  JavaScript pages rendered by Cloudflare Browser Rendering)
    └─ workbench: python3, pypdf, reportlab, python-docx, openpyxl, pillow, poppler, git, zip
         │ all Kimi inference → ai& (https://api.aiand.com/v1; default zai-org/glm-5.3)
-        │ outbound calls to ai& / Firecrawl pass through the Worker, which adds the key
+        │ outbound calls to ai& / Brave pass through the Worker, which adds the key
 R2: workspace and Kimi-state backups (restored automatically when a container restarts)
 ```
 
-Vendors: **Cloudflare**, **ai&**, and **Firecrawl** (optional; paid plan for commercial use).
+Accounts needed: **Cloudflare**, **ai&**, and **Brave Search API** (for web search; free monthly credit,
+then $5 per 1,000 searches). Page reading and JavaScript rendering use your Cloudflare account.
 
 ## What employees get
 
@@ -41,7 +43,8 @@ Vendors: **Cloudflare**, **ai&**, and **Firecrawl** (optional; paid plan for com
 - Cloudflare account with **Workers Paid** ($5/month; required for Containers), **R2** enabled,
   **Zero Trust** (Free plan covers 50 users), and a workers.dev subdomain (open Workers & Pages
   once to create it).
-- ai& API key. Firecrawl API key (optional).
+- ai& API key. Brave Search API key (https://brave.com/search/api/; optional, but without it Kimi
+  cannot search the web).
 - Node 22, Docker (to build the container image), and `npx wrangler login`.
 
 ## 1. Run setup
@@ -55,7 +58,7 @@ npm run setup
 
 `npm run setup` checks the prerequisites, creates this deployment's sign-in storage (KV) and
 backup bucket (R2), asks where containers may run, walks you through the one dashboard step
-(below), validates your ai&, Firecrawl and Access values, generates the internal secrets,
+(below), validates your ai&, Brave Search and Access values, generates the internal secrets,
 deploys (the first build takes a few minutes), confirms the Worker answers, and prints the
 Claude settings. It is safe to re-run: existing resources and secrets are kept.
 `npm run setup -- --dry-run` shows the plan without changing anything.
@@ -78,8 +81,8 @@ client secret it shows.
 
 ### Unattended setup
 
-Every prompt has an environment variable: `AIAND_API_KEY`, `FIRECRAWL_API_KEY` (`disabled`
-to turn off web tools), `ACCESS_TEAM`, `ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRET`,
+Every prompt has an environment variable: `AIAND_API_KEY`, `BRAVE_API_KEY` (`disabled`
+to turn off web search), `ACCESS_TEAM`, `ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRET`,
 `KIMI_WORKER_NAME`, `KIMI_REGIONS` (e.g. `ENAM,WNAM`), `KIMI_JURISDICTION` (`eu` or
 `fedramp`), plus the limits and policies below (`KIMI_SWARM_CONCURRENCY`,
 `KIMI_MAX_AGENTS_CAP`, `KIMI_DEFAULT_MAX_AGENTS`, `KIMI_DAILY_REQUEST_LIMIT`,
@@ -142,14 +145,24 @@ packages. `EGRESS_MODE` (setup: `KIMI_EGRESS_MODE`) chooses the policy:
 
 | Mode | Behaviour |
 |---|---|
-| `open` (default) | Everything allowed; only ai& and Firecrawl traffic goes through the Worker. |
+| `open` (default) | Everything allowed; only ai& and Brave Search traffic goes through the Worker. |
 | `log` | Everything allowed; every outbound HTTP(S) request is logged (host, method, sandbox) to Workers Logs as `{"event":"egress",…}`. |
-| `allowlist` | Only hosts matching `EGRESS_ALLOWLIST` (comma-separated, `*` globs, e.g. `*.github.com,pypi.org,files.pythonhosted.org,registry.npmjs.org`) plus ai& and Firecrawl; others get HTTP 403. |
+| `allowlist` | Only hosts matching `EGRESS_ALLOWLIST` (comma-separated, `*` globs, e.g. `*.github.com,pypi.org,files.pythonhosted.org,registry.npmjs.org`) plus ai& and Brave Search; others get HTTP 403. |
 
 In `log` and `allowlist` modes HTTPS is inspected with a Cloudflare-issued certificate that
 the container trusts (git, curl, pip, npm, Python and Node pick it up automatically). The
 policy covers HTTP and HTTPS; other protocols (for example SSH to git hosts) are not
 filtered. Changing modes takes effect for each container when it next starts.
+
+## Web research
+
+Workers get two tools. `web_search` queries the Brave Search API (50 queries per second; the
+key is shared by the whole deployment). `read_page` fetches a page and has a small, fast ai&
+model (`KIMI_READER_MODEL`, default `deepseek-ai/deepseek-v4-flash`, about $0.003 per page)
+return only the facts the worker asked for, so full pages never fill the worker's context.
+Pages built with JavaScript are rendered by Cloudflare Browser Rendering (10 browser-hours a
+month included with Workers Paid, then $0.09 per hour). Search requests that hit Brave's rate
+limit are retried by the Worker, so workers never wait them out.
 
 ## Limits
 
@@ -183,7 +196,7 @@ curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
   | `GET /admin/sandboxes/<id>` | backup status, skipped backups, today's ai& usage |
   | `POST …/backup` | back up now |
   | `POST …/restart` | stop the container; the next request restores and starts it |
-  | `POST …/selftest` | checks inside the container: no real keys present; ai&, Firecrawl, HTTPS, git, pip and npm reachable (one small ai& request) |
+  | `POST …/selftest` | checks inside the container: no real keys present; ai&, Brave search, browser rendering, HTTPS, git, pip and npm work (one small ai& request); reports the running build |
   | `GET /admin/sandboxes` | signed-in employees: sandbox id, name, number of sign-ins |
   | `DELETE /admin/sandboxes/<id>` | offboard: revoke the employee's sign-ins, destroy their container, delete its state and backups |
   | `GET /admin/backups` | every backup in R2 with owner sandbox, size and date |
@@ -207,12 +220,12 @@ curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
   another employee's files, sessions or processes.
 - The Worker replaces the client's OAuth token with an internal token before forwarding;
   Kimi's REST API stays on loopback inside the container.
-- The ai& and Firecrawl keys never enter containers. Containers hold placeholders; the Worker
-  intercepts their requests to `api.aiand.com` and `api.firecrawl.dev` and attaches the real
+- The ai& and Brave Search keys never enter containers. Containers hold placeholders; the Worker
+  intercepts their requests to `api.aiand.com` and `api.search.brave.com` and attaches the real
   key, so an agent (or a prompt injection) with full shell access cannot read or exfiltrate it.
 - File links are HMAC-signed with a per-container key derived from `BRIDGE_TOKEN`. The Worker
   verifies the signature before waking a container, so a link minted in one container cannot
   address another. Uploads are single-use, size-capped, optionally hash-bound, never overwrite
   and stay inside `/workspace`; downloads refuse paths (and symlinks) outside `/workspace`.
-- Uploaded files never go to Firecrawl or other retrieval providers; file contents that Kimi
+- Uploaded files never go to search providers; file contents that Kimi
   reads are sent to ai& as model input.

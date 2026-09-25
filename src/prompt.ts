@@ -9,7 +9,7 @@ export interface PromptContext {
 
 function swarmLimitText(limits: PromptContext['swarmLimits']): string {
   if (!limits) return '';
-  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. Tell each worker to save its findings to a notes file under /tmp/notes as it goes (its working context is summarized automatically when it grows) and to return a concise summary with sources rather than raw page content. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. Tell each worker to save its findings to a notes file under /tmp/notes as it goes (its working context is summarized automatically when it grows) and to return a concise summary with sources rather than raw page content. For web research, tell workers to find sources with web_search and read them with read_page, always passing a specific question so only the relevant facts come back, and never to sleep or wait out rate limits (the tools retry on their own). At most ${limits.concurrency} run at the same time; extra workers queue automatically.
 `;
 }
 
@@ -17,6 +17,7 @@ const WORKSPACE_FILES = `
 Files:
 Files shared by the user are in /workspace/inputs. Save every deliverable the user should receive in /workspace/outputs (create it if needed, use clear file names, do not overwrite inputs) and list those paths in the handoff.
 Files in /workspace persist between sessions, but installed dependencies and caches (node_modules, .venv, __pycache__, .cache) do not; reinstall them when missing.
+Web research: use web_search to find sources and read_page with a specific question to extract facts (it returns a short answer instead of the whole page). Do not sleep or poll to wait out rate limits.
 `;
 
 export interface DelegationPromptInput extends PromptContext {

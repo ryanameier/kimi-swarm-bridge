@@ -10,16 +10,12 @@ const kimiBaseUrl = `http://${kimiHost}:${kimiPort}`;
 
 applyAiandRuntimePolicy(process.env);
 
-// Register Internet MCP tools for Kimi (coordinator and coder workers load
-// user-global servers from $KIMI_CODE_HOME/mcp.json). Stdio MCP children do not
-// inherit the full environment, so the key is written into the server entry.
+// Register the web research tools (web_search via Brave, read_page) for Kimi
+// (coordinator and workers load user-global servers from $KIMI_CODE_HOME/mcp.json).
+// Settings are passed explicitly because stdio MCP children may not inherit the
+// full environment. On Cloudflare the keys are placeholders; the Worker attaches
+// the real ones to outgoing requests.
 async function registerInternetTools() {
-  const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
-
-  if (!firecrawlKey || firecrawlKey === "disabled") {
-    return;
-  }
-
   const mcpPath = `${kimiCodeHome}/mcp.json`;
   let config = {};
 
@@ -29,23 +25,32 @@ async function registerInternetTools() {
     // No existing config.
   }
 
-  // Every tool definition is re-sent on every model request (Firecrawl ships
-  // ~29 tools, ~13k tokens), so only the tools research needs are enabled.
-  const enabledTools = (process.env.KIMI_FIRECRAWL_TOOLS ||
-    "firecrawl_search,firecrawl_scrape,firecrawl_map")
-    .split(",")
-    .map((tool) => tool.trim())
-    .filter(Boolean);
+  const pass = (names) =>
+    Object.fromEntries(
+      names
+        .filter((name) => process.env[name])
+        .map((name) => [name, process.env[name]]),
+    );
 
-  config.mcpServers = {
-    ...config.mcpServers,
-    firecrawl: {
-      command: "firecrawl-mcp",
-      args: [],
-      env: { FIRECRAWL_API_KEY: firecrawlKey },
-      ...(enabledTools.includes("all") ? {} : { enabledTools }),
-    },
+  const servers = { ...config.mcpServers };
+  // Firecrawl was replaced by the built-in web tools.
+  delete servers.firecrawl;
+  servers.web = {
+    command: "node",
+    args: ["/app/dist/web-tools.js"],
+    env: pass([
+      "BRAVE_API_KEY",
+      "KIMI_MODEL_BASE_URL",
+      "KIMI_MODEL_API_KEY",
+      "KIMI_READER_MODEL",
+      "KIMI_BROWSER_RENDERING",
+      "NODE_EXTRA_CA_CERTS",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "NO_PROXY",
+    ]),
   };
+  config.mcpServers = servers;
 
   await mkdir(kimiCodeHome, { recursive: true });
   await writeFile(mcpPath, `${JSON.stringify(config, null, 2)}\n`, {

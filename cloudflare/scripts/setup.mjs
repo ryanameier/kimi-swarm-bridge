@@ -6,7 +6,7 @@
 //
 // Re-runnable: existing KV namespaces, buckets and secrets are reused. Values can
 // be supplied as environment variables instead of prompts:
-//   AIAND_API_KEY, FIRECRAWL_API_KEY ("disabled" to skip web tools),
+//   AIAND_API_KEY, BRAVE_API_KEY (web search; "disabled" to skip),
 //   ACCESS_TEAM (team name or <team>.cloudflareaccess.com),
 //   ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, KIMI_WORKER_NAME,
 //   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp),
@@ -219,7 +219,7 @@ async function main() {
   ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
   const limit = config.vars.AIAND_DAILY_REQUEST_LIMIT;
   ok(`default model: ${config.vars.AIAND_MODEL}`);
-  ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Firecrawl only'})` : ''}`);
+  ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Brave Search only'})` : ''}`);
 
   // Where employee containers may run (data residency / latency).
   const REGIONS = ['ENAM', 'WNAM', 'EEUR', 'WEUR', 'APAC', 'SAM', 'ME', 'OC', 'AFR'];
@@ -300,18 +300,21 @@ async function main() {
     ok('ai& key already set');
   }
 
-  if (process.env.FIRECRAWL_API_KEY || !existing.has('FIRECRAWL_API_KEY')) {
-    const key = process.env.FIRECRAWL_API_KEY || await ask('Firecrawl API key (Enter to disable web tools)', { secret: true }) || 'disabled';
+  if (process.env.BRAVE_API_KEY || !existing.has('BRAVE_API_KEY')) {
+    console.log('  Web search uses the Brave Search API (https://brave.com/search/api/, free monthly credit).');
+    const key = process.env.BRAVE_API_KEY || await ask('Brave Search API key (Enter to disable web search)', { secret: true }) || 'disabled';
     if (key !== 'disabled') {
-      const probe = await fetch('https://api.firecrawl.dev/v2/team/credit-usage', { headers: { authorization: `Bearer ${key}` } });
-      if (!probe.ok) fail(`Firecrawl rejected the key (HTTP ${probe.status}).`);
-      ok('Firecrawl key works');
+      const probe = await fetch('https://api.search.brave.com/res/v1/web/search?q=test&count=1', {
+        headers: { accept: 'application/json', 'x-subscription-token': key },
+      });
+      if (!probe.ok) fail(`Brave rejected the key (HTTP ${probe.status}).`);
+      ok('Brave Search key works');
     } else {
-      ok('web tools disabled (set FIRECRAWL_API_KEY later to enable)');
+      ok('web search disabled (set BRAVE_API_KEY later to enable; reading pages still works)');
     }
-    secrets.FIRECRAWL_API_KEY = key;
+    secrets.BRAVE_API_KEY = key;
   } else {
-    ok('Firecrawl key already set');
+    ok('Brave Search key already set');
   }
 
   let adminToken;

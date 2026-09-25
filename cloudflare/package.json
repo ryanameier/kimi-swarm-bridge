@@ -12,13 +12,14 @@
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.4.0",
     "@cloudflare/sandbox": "^0.12.10",
     "@cloudflare/workers-oauth-provider": "^0.8.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
     "typescript": "^5.9.3",
-    "wrangler": "^4.139.0",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "wrangler": "^4.139.0"
   }
 }

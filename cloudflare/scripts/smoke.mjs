@@ -7,7 +7,7 @@
 // Checks OAuth discovery and that MCP, file links and admin endpoints reject
 // unauthenticated callers. With ADMIN_TOKEN and a sandbox id it also runs
 // POST /admin/sandboxes/<id>/selftest (no real keys in the container; ai&,
-// Firecrawl and general outbound access work). The self-test makes one small
+// web search, page rendering and general outbound access work). The self-test makes one small
 // ai& request, counted against that user's daily budget.
 
 const base = (process.argv[2] ?? process.env.KIMI_URL ?? '').replace(/\/+$/, '');
