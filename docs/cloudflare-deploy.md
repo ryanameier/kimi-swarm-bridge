@@ -104,8 +104,10 @@ share download links.
   ceiling from chat ("increase the Kimi agent limit to 20", via `kimi_swarm_settings`), up to
   `MAX_AGENTS_CAP` (32; Kimi's hard maximum is 128).
 - **Workers calling ai& at once (a guardrail).** `SWARM_CONCURRENCY` (4) limits how many
-  workers run simultaneously per employee; extra workers queue. A 20-agent task at concurrency
-  4 runs in waves of 4, so simultaneous ai& requests stay bounded however high the ceiling is.
+  workers run simultaneously per employee; extra workers wait in a rolling queue and start as
+  soon as a running worker finishes. A 20-agent task at concurrency 4 still runs all 20 workers,
+  never more than 4 at a time, so simultaneous ai& requests stay bounded however high the
+  ceiling is. Each employee's container has its own limit.
 - **Rate limits.** ai& reports `X-RateLimit-Limit` (100 at the time of writing). Kimi starts
   workers in batches, retries HTTP 429 with exponential backoff, and temporarily lowers its
   concurrency when rate-limited. Size `SWARM_CONCURRENCY` × active employees to your ai& limit.
