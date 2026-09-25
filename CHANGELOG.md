@@ -6,6 +6,9 @@
   often rejected and retried), workers get a soft tool-call budget by depth (5 / 8 / 14) so one
   worker can't hold up the swarm, and `read_page` stops waiting for a slow page 8s after half the
   batch is done (reader model timeout 20s, browser 15s).
+- `kimi-assemble`: joins the workers' section files into one document (one contiguous table,
+  sections in order) without a model. In a 15-worker run the coordinator had spent 4 minutes
+  repairing a hand-assembled report.
 - Cloudflare defaults for new deployments: 20 agents per task (Kimi uses fewer when it can), 20
   running at once, and `EGRESS_MODE=log`. Existing deployments keep their settings on re-run.
 - Setup writes `cloudflare/employee-guide.<worker>.md`, the employee guide with the connector URL

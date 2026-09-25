@@ -68,6 +68,9 @@ RUN pnpm install --prod --frozen-lockfile
 
 COPY --from=build /app/dist ./dist
 COPY supervisor.mjs ./supervisor.mjs
+# Joins AgentSwarm section files into one document (used by the swarm prompt).
+RUN printf '#!/bin/sh\nexec node /app/dist/assemble-sections.js "$@"\n' > /usr/local/bin/kimi-assemble \
+    && chmod 755 /usr/local/bin/kimi-assemble
 
 RUN mkdir -p \
       /data/kimi-code \

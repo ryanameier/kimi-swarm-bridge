@@ -22229,8 +22229,8 @@ prompt_template must contain {{item}} once; items are plain strings, at least 2,
 - stop after about ${WORKER_STEP_BUDGET[depth]} tool calls: write what it has, mark anything still missing as "not found", and finish (the slowest worker decides when the whole swarm is done);
 - for research depth "${depth}": ${DEPTH_TEXT[depth]};
 - not inspect tool-result files, re-read its own output or re-verify, and never sleep or wait out rate limits (the tools retry on their own);
-- when the deliverable is a document, write its finished section(s) to /workspace/outputs/.sections/<NN>-<topic>.md and return only a short summary plus one summary-table row per item.
-Then finish in two steps: write the parts that need the whole picture (summary table built from the workers' rows, recommendations) in one file write, and assemble everything with one shell command that also deletes /workspace/outputs/.sections. Do not re-read or re-verify the assembled file.
+- when the deliverable is a document with a summary table, write one file /workspace/outputs/.sections/<NN>-<topic>.md (NN = its item number, two digits): first its summary-table rows (one "| ... |" line per item, same columns for every worker, no table header), then its detail section(s) starting with a "##" or "###" heading; return only a short summary.
+Then finish in two steps: write /workspace/outputs/.sections/_head.md (title, short intro, the summary-table header and separator lines) and /workspace/outputs/.sections/_tail.md (recommendations) in one step, then run the shell command "kimi-assemble /workspace/outputs/<name>.md", which joins everything in order into one table and one document and deletes .sections. Do not re-read, re-verify or repair the assembled file.
 `;
 }
 var WORKSPACE_FILES = `
