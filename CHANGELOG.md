@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- README: benchmarks of Kimi Swarm vs Claude on web research briefs (time, completeness, cost) and
+  what limits scaling past them.
 - `kimi_model_settings`: users switch the ai& models Kimi uses from chat, separately for the
   coordinator and the AgentSwarm workers (for example a cheaper worker model). The tool lists the
   ai& models with live prices; admins can narrow the list with `KIMI_ALLOWED_MODELS`. Choices are
