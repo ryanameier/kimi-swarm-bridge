@@ -176,7 +176,11 @@ async function handleMcpRequest(
       }
     };
 
-    const mcpServer = createMcpServer({ fileTransfer });
+    const clientName = (body as { params?: { clientInfo?: { name?: unknown } } }).params?.clientInfo?.name;
+    const mcpServer = createMcpServer({
+      fileTransfer,
+      clientName: typeof clientName === 'string' ? clientName : undefined,
+    });
     await mcpServer.connect(transport);
     await transport.handleRequest(req, res, body);
     return;

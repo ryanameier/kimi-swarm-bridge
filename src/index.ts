@@ -12,7 +12,7 @@ import { KimiHttpClient } from './kimi/http.js';
 import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
-import { FILE_HANDOFF_INSTRUCTIONS, registerFileTools } from './file-tools.js';
+import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -81,6 +81,8 @@ export async function runToolHandler(handler: () => Promise<unknown>): Promise<{
 
 export interface CreateMcpServerOptions {
   fileTransfer?: FileTransferConfig;
+  /** clientInfo.name from the MCP initialize request. */
+  clientName?: string;
 }
 
 export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer {
@@ -300,7 +302,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
   );
 
   if (options.fileTransfer) {
-    registerFileTools(server, options.fileTransfer);
+    registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });
   }
 
   return server;

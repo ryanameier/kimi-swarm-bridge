@@ -200,6 +200,13 @@ describe('HTTP MCP entrypoint', () => {
 
     await first.client.close();
 
+    const claude = makeClient(mcpUrl, token, 'claude-ai');
+    await claude.client.connect(claude.transport);
+    const claudeTools = (await claude.client.listTools()).tools.map((tool) => tool.name);
+    expect(claudeTools).toContain('kimi_create_upload_links');
+    expect(claudeTools).not.toContain('kimi_file_panel');
+    await claude.client.close();
+
     const second = makeClient(mcpUrl, token, 'http-test-second');
     await second.client.connect(second.transport);
 

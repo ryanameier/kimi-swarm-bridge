@@ -26,7 +26,20 @@ Deliverables: when the user wants a file (report, PDF, spreadsheet, chart, slide
 
 Work: for anything longer than a minute use kimi_delegate_task, then call kimi_wait_until_idle repeatedly while it returns timeout (the job keeps running), then kimi_get_handoff. Kimi saves deliverables in /workspace/outputs.
 
-Files out: when a finished task produced files the user wants, call kimi_create_download_links (defaults to /workspace/outputs), download each URL into your environment (for example into /mnt/user-data/outputs), check the SHA-256, and present the files in the conversation. If you cannot run code, share the links or open kimi_file_panel so the user can download them.`;
+Files out: when a finished task produced files the user wants, call kimi_create_download_links (defaults to /workspace/outputs), download each URL into your environment (for example into /mnt/user-data/outputs), check the SHA-256, and present the files in the conversation. If you cannot run code, share the links with the user.`;
+
+/**
+ * The file panel is an MCP App for clients whose sandbox lets apps pick and save
+ * files. Claude's app sandbox blocks file pickers and declines panel downloads,
+ * and Claude clients move files natively (code execution), so Claude gets no
+ * panel. KIMI_FILE_PANEL=always|never overrides the client check.
+ */
+export function filePanelEnabled(clientName: string | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  const mode = env.KIMI_FILE_PANEL?.trim().toLowerCase();
+  if (mode === 'always') return true;
+  if (mode === 'never') return false;
+  return !/claude/i.test(clientName ?? '');
+}
 
 export const FILE_TOOL_METADATA = {
   kimi_create_upload_links: {
@@ -70,7 +83,7 @@ export async function createDownloadLinks(
   return { files: await Promise.all(paths.map((path) => createDownloadLink(config, path))) };
 }
 
-export function registerFileTools(server: McpServer, config: FileTransferConfig): void {
+export function registerFileTools(server: McpServer, config: FileTransferConfig, options: { panel?: boolean } = {}): void {
   server.registerTool(
     'kimi_create_upload_links',
     {
@@ -142,5 +155,7 @@ export function registerFileTools(server: McpServer, config: FileTransferConfig)
     async (input) => runToolHandler(() => listWorkspaceFiles(config, input.dir, input.limit)),
   );
 
-  registerFilePanel(server, config);
+  if (options.panel ?? true) {
+    registerFilePanel(server, config);
+  }
 }

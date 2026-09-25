@@ -25,9 +25,13 @@ Vendors: **Cloudflare**, **ai&**, and **Firecrawl** (optional; paid plan for com
 
 - Kimi tools in Claude (`kimi_delegate_task`, `kimi_wait_until_idle`, `kimi_get_handoff`, …).
 - Their own isolated Linux workspace. Employees never share a filesystem or process space.
-- Files in: Claude uploads attachments with `kimi_create_upload_links` (code execution; the server tells Claude when and how), or the
-  employee uses the in-chat panel (`kimi_file_panel`).
-- Files out: `kimi_create_download_links` (Claude downloads and presents deliverables from `/workspace/outputs`), or the panel's Download buttons.
+- Files in: Claude uploads chat attachments itself with `kimi_create_upload_links` from code
+  execution; the server's MCP instructions tell it when and how.
+- Files out: Kimi writes deliverables to `/workspace/outputs`; Claude fetches them with
+  `kimi_create_download_links` and attaches them to the conversation.
+- Other MCP Apps hosts (not Claude) also get `kimi_file_panel`, an in-chat upload/download
+  panel. Claude's app sandbox blocks file pickers, so the panel is not offered to Claude
+  clients (`KIMI_FILE_PANEL=always|never` overrides).
 - Work survives restarts: `/workspace` and Kimi's state are backed up to R2 and restored.
 
 ## Prerequisites
@@ -91,7 +95,8 @@ add it for the organization. Each employee clicks **Connect** and signs in once.
 For attachment hand-off through code execution, allow the upload domain:
 **Settings → Capabilities → Allow network egress → Package managers only** and add
 `*.<your-subdomain>.workers.dev` under *Additional allowed domains* (organization settings on
-Team/Enterprise). Without it, employees can still use the file panel.
+Team/Enterprise). Without it, Claude cannot move attachments into the workspace; it can still
+share download links.
 
 ## Limits
 
