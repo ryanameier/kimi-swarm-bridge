@@ -162,6 +162,15 @@ pnpm build
 pnpm test
 ```
 
+For changes under `cloudflare/`:
+
+```bash
+cd cloudflare
+npm run typecheck
+npm test
+npm run smoke -- https://<worker>.<subdomain>.workers.dev   # after deploying
+```
+
 The external Codex `plugin-creator` validator is optional. `test/plugin.test.ts` runs it when the validator is installed and skips only that validator check when it is unavailable.
 
 For legacy local plugin installation smoke checks:
@@ -190,6 +199,25 @@ The `codex-kimi-bridge-local` marketplace id is retained for compatibility with 
 - Bridge runtime status normalizes both legacy `status` responses and Kimi 0.27+ `busy`/`pending_interaction`/`last_turn_reason` responses.
 - `failed` is an explicit terminal status: it receives no success `reviewPackage` and is not automatically reused by dedupe.
 - End-to-end smoke test passed: Codex delegated a file creation to Kimi, read handoff/diff, reviewed the result, then delegated cleanup.
+
+## Cloudflare Edition
+
+`cloudflare/` deploys one Sandbox container per signed-in employee (admin guide:
+`docs/cloudflare-deploy.md`). The image is the `cloudflare` target of the root `Dockerfile`.
+
+- `src/index.ts`: `KimiSandbox` Durable Object (restore, supervisor start, backups, budget counter, self-test) and the OAuth provider wiring.
+- `src/routes.ts`: MCP, signed file-link and admin routes, with the sandbox injected for tests.
+- `src/mcp-session.ts`: the Worker owns MCP sessions (`ks1.` ids) and serves initialize/tools/list from a KV snapshot; the bridge runs in stateless mode (`x-kimi-mcp-mode: stateless`, `x-kimi-client-name`).
+- `src/egress.ts` + `src/container-proxy.ts`: outbound interception; attaches the ai&/Firecrawl keys, enforces the daily budget and `EGRESS_MODE`.
+- `scripts/setup.mjs` (`npm run setup`) and `scripts/smoke.mjs` (`npm run smoke`).
+
+Invariants:
+
+- Real API keys never enter containers; containers see `AIAND_PLACEHOLDER`/`FIRECRAWL_PLACEHOLDER`.
+- Keep MCP tool names stable. claude.ai caches tool lists; renamed tools keep compatibility aliases.
+- claude.ai drops MCP calls after about 240 s, so waits are clamped by `KIMI_MAX_WAIT_MS`.
+- Register outbound handlers by assignment (`KimiSandbox.outboundByHost = …`); `static` class fields bypass the SDK setters.
+- After an image change, wait for the container rollout to finish (no `active_rollout_id`) before restarting sandboxes through the admin endpoint.
 
 ## Good Next Tasks
 
