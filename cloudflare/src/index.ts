@@ -2,9 +2,10 @@ import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
 import type { Props } from "./workers-oauth-utils";
+import { AIAND_PLACEHOLDER, CREDENTIAL_HOSTS, FIRECRAWL_PLACEHOLDER, egressMode, type ModelBudgetResult } from "./egress";
 
-// Required by the Sandbox SDK for outbound interception (bucket mounts etc.).
-export { ContainerProxy } from "@cloudflare/sandbox";
+// Outbound interception entrypoint: attaches API keys, enforces budgets and egress policy.
+export { ContainerProxy } from "./egress";
 
 const BRIDGE_PORT = 8080;
 const BRIDGE_READY_TIMEOUT_MS = 120_000;
@@ -26,6 +27,10 @@ const JOB_ACK_TOOLS = new Set(["kimi_delegate_task", "kimi_continue_task"]);
 const JOB_CHANGE_TOOLS = new Set(["kimi_delegate_and_wait", "kimi_wait_until_idle", "kimi_get_handoff", "kimi_abort"]);
 
 const SANDBOX_ID_PATTERN = /^user-[0-9a-f]{40}$/;
+// Written into the container trust store by the sandbox runtime when HTTPS interception is on.
+const INTERCEPT_CA_PATH = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
+
+const passThrough = (request: Request) => fetch(request);
 
 function hex(bytes: ArrayBuffer): string {
 	return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -54,7 +59,10 @@ async function fileGrantKey(bridgeToken: string, sandboxId: string): Promise<Arr
  * before it sleeps.
  */
 export class KimiSandbox extends Sandbox<Env> {
+	override interceptHttps = true;
+
 	private readonly bridgeToken: string;
+	private egressConfigured = false;
 	private starting?: Promise<void>;
 	private backingUp?: Promise<void>;
 	private rerun?: Promise<void>;
@@ -64,8 +72,9 @@ export class KimiSandbox extends Sandbox<Env> {
 		super(ctx, env);
 		this.bridgeToken = env.BRIDGE_TOKEN;
 		this.envVars = {
-			AIAND_API_KEY: env.AIAND_API_KEY,
-			FIRECRAWL_API_KEY: env.FIRECRAWL_API_KEY ?? "",
+			// Placeholders only: the real keys are attached to outbound requests by the Worker.
+			AIAND_API_KEY: AIAND_PLACEHOLDER,
+			FIRECRAWL_API_KEY: env.FIRECRAWL_API_KEY && env.FIRECRAWL_API_KEY !== "disabled" ? FIRECRAWL_PLACEHOLDER : "disabled",
 			KIMI_MCP_AUTH_TOKEN: env.BRIDGE_TOKEN,
 			KIMI_ORGANIZATION_ID: env.ORGANIZATION_ID || "default",
 			KIMI_CONNECTOR_INSTANCE_ID: "cloudflare",
@@ -80,6 +89,7 @@ export class KimiSandbox extends Sandbox<Env> {
 	/** Make sure the bridge is serving; restores state and starts it on a fresh container. */
 	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void> {
 		await this.ctx.storage.delete("busySince");
+		await this.configureEgress();
 		if (await this.bridgeHealthy()) return;
 		this.starting ??= this.startRuntime(sandboxId, publicBaseUrl).finally(() => {
 			this.starting = undefined;
@@ -123,6 +133,66 @@ export class KimiSandbox extends Sandbox<Env> {
 		return { lastBackupAt: (await this.ctx.storage.get<number>("lastBackupAt")) ?? null, backups };
 	}
 
+	/**
+	 * Count one ai& model request against today's per-user limit. Called by the
+	 * outbound proxy; AIAND_DAILY_REQUEST_LIMIT of 0 (or unset) means unlimited.
+	 */
+	async consumeModelRequest(): Promise<ModelBudgetResult> {
+		const limit = Math.max(0, Number.parseInt(this.env.AIAND_DAILY_REQUEST_LIMIT ?? "0", 10) || 0);
+		const key = `modelRequests:${new Date().toISOString().slice(0, 10)}`;
+		const used = (await this.ctx.storage.get<number>(key)) ?? 0;
+		if (limit > 0 && used >= limit) return { allowed: false, used, limit };
+		await this.ctx.storage.put(key, used + 1);
+		return { allowed: true, used: used + 1, limit };
+	}
+
+	async usage(): Promise<{ date: string; modelRequests: number; dailyLimit: number }> {
+		const date = new Date().toISOString().slice(0, 10);
+		return {
+			date,
+			modelRequests: (await this.ctx.storage.get<number>(`modelRequests:${date}`)) ?? 0,
+			dailyLimit: Math.max(0, Number.parseInt(this.env.AIAND_DAILY_REQUEST_LIMIT ?? "0", 10) || 0),
+		};
+	}
+
+	/**
+	 * Fixed operator self-test: confirms the container holds no real keys and
+	 * that ai&, Firecrawl, and general outbound access work through the proxy.
+	 * Makes one minimal ai& request (counted against the user's budget).
+	 */
+	async selfTest(sandboxId: string, publicBaseUrl: string): Promise<Record<string, { ok: boolean; detail: string }>> {
+		await this.ensureRuntime(sandboxId, publicBaseUrl);
+		const checks: Record<string, string> = {
+			placeholderKeys: `real=$(for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < $f 2>/dev/null; done | grep -E '^(AIAND_API_KEY|KIMI_MODEL_API_KEY|FIRECRAWL_API_KEY)=' | grep -v -E '=(${AIAND_PLACEHOLDER}|${FIRECRAWL_PLACEHOLDER}|disabled)$' | sed 's/=.*/=<real value>/' | sort -u); test -z "$real" && echo placeholders-only || echo $real`,
+			aiand: `curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.aiand.com/v1/chat/completions -H "authorization: Bearer $AIAND_API_KEY" -H 'content-type: application/json' -d '{"model":"moonshotai/kimi-k3","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}'`,
+			firecrawl: `test "$FIRECRAWL_API_KEY" = disabled && echo disabled || curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.firecrawl.dev/v2/scrape -H "authorization: Bearer $FIRECRAWL_API_KEY" -H 'content-type: application/json' -d '{"url":"https://example.com","formats":["markdown"]}'`,
+			https: `curl -s -m 30 -o /dev/null -w '%{http_code}' https://example.com`,
+			git: `git ls-remote https://github.com/cloudflare/sandbox-sdk HEAD | cut -c1-12`,
+			pip: `python3 -c "import urllib.request;print(urllib.request.urlopen('https://pypi.org/simple/six/',timeout=30).status)"`,
+			npm: `npm view left-pad version`,
+		};
+		const expect: Record<string, (out: string) => boolean> = {
+			placeholderKeys: (out) => out === "placeholders-only",
+			aiand: (out) => out === "200",
+			firecrawl: (out) => out === "200" || out === "disabled",
+			https: (out) => out === "200",
+			git: (out) => /^[0-9a-f]{12}$/.test(out),
+			pip: (out) => out === "200",
+			npm: (out) => /^\d+\.\d+\.\d+$/.test(out),
+		};
+		const results: Record<string, { ok: boolean; detail: string }> = {};
+		for (const [name, command] of Object.entries(checks)) {
+			try {
+				const result = await this.exec(`bash -c '${command.replace(/'/g, "'\\''")}'`);
+				const out = `${result.stdout}`.trim();
+				results[name] = { ok: expect[name](out), detail: (out || `${result.stderr}`.trim()).slice(0, 300) };
+			} catch (error) {
+				results[name] = { ok: false, detail: String(error).slice(0, 300) };
+			}
+		}
+		return results;
+	}
+
 	/** Start a backup without waiting for it (used after uploads and completed jobs). */
 	async requestBackup(stateOnly = false): Promise<void> {
 		void this.backupNow(stateOnly).catch((error) => console.error("background backup failed", error));
@@ -150,6 +220,13 @@ export class KimiSandbox extends Sandbox<Env> {
 			console.error("backup before sleep failed", error);
 		}
 		await super.onActivityExpired();
+	}
+
+	/** In log/allowlist mode every outbound request goes through the proxy, not just credential hosts. */
+	private async configureEgress(): Promise<void> {
+		if (this.egressConfigured) return;
+		if (egressMode(this.env) !== "open") await this.setOutboundHandler("egress");
+		this.egressConfigured = true;
 	}
 
 	private async bridgeHealthy(): Promise<boolean> {
@@ -190,6 +267,7 @@ export class KimiSandbox extends Sandbox<Env> {
 					KIMI_SANDBOX_ID: sandboxId,
 					KIMI_FILE_GRANT_KEY: hex(await fileGrantKey(this.bridgeToken, sandboxId)),
 					KIMI_PUBLIC_BASE_URL: publicBaseUrl,
+					NODE_EXTRA_CA_CERTS: INTERCEPT_CA_PATH,
 				},
 			});
 		}
@@ -216,6 +294,12 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.ctx.storage.put("lastBackupAt", Date.now());
 	}
 }
+
+// Assigned (not declared as static fields) so the SDK's registering setters run.
+// Intercept the credential hosts; the ContainerProxy in ./egress attaches the keys.
+KimiSandbox.outboundByHost = Object.fromEntries(CREDENTIAL_HOSTS.map((host) => [host, passThrough]));
+// Catch-all used when EGRESS_MODE is log or allowlist.
+KimiSandbox.outboundHandlers = { egress: passThrough };
 
 function jsonRpcError(status: number, message: string): Response {
 	return Response.json({ jsonrpc: "2.0", error: { code: -32603, message }, id: null }, { status });
@@ -347,13 +431,14 @@ async function handleFileRoute(request: Request, env: Env): Promise<Response | n
 
 /**
  * Operator endpoints, authenticated with the ADMIN_TOKEN secret:
- *   GET  /admin/sandboxes/<id>          backup status
+ *   GET  /admin/sandboxes/<id>          backup status and today's ai& usage
  *   POST /admin/sandboxes/<id>/backup   back up now
+ *   POST /admin/sandboxes/<id>/selftest fixed checks: no real keys in the container; ai&, Firecrawl, web, git, pip, npm reachable
  *   POST /admin/sandboxes/<id>/restart  stop the container (applies new images; next request restores)
  */
 async function handleAdminRoute(request: Request, env: Env): Promise<Response | null> {
 	const url = new URL(request.url);
-	const match = /^\/admin\/sandboxes\/([^/]+)(?:\/(backup|restart))?$/.exec(url.pathname);
+	const match = /^\/admin\/sandboxes\/([^/]+)(?:\/(backup|restart|selftest))?$/.exec(url.pathname);
 	if (!match) return null;
 
 	const supplied = new TextEncoder().encode(request.headers.get("authorization") ?? "");
@@ -364,9 +449,15 @@ async function handleAdminRoute(request: Request, env: Env): Promise<Response | 
 	if (!SANDBOX_ID_PATTERN.test(match[1])) return Response.json({ error: "Unknown sandbox id" }, { status: 400 });
 
 	const sandbox = getSandbox(env.KIMI_SANDBOX, match[1], { sleepAfter: SANDBOX_SLEEP_AFTER });
-	if (!match[2] && request.method === "GET") return Response.json(await sandbox.backupStatus());
+	if (!match[2] && request.method === "GET") {
+		return Response.json({ ...(await sandbox.backupStatus()), usage: await sandbox.usage() });
+	}
 	if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
 
+	if (match[2] === "selftest") {
+		const results = await sandbox.selfTest(match[1], url.origin);
+		return Response.json({ ok: Object.values(results).every((r) => r.ok), results });
+	}
 	if (match[2] === "backup") {
 		await sandbox.backupNow(false);
 		return Response.json(await sandbox.backupStatus());

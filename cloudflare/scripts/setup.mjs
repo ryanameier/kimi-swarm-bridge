@@ -12,7 +12,9 @@
 //   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp),
 //   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 4),
 //   KIMI_MAX_AGENTS_CAP (highest agent ceiling users may set, default 32),
-//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 4)
+//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 4),
+//   KIMI_DAILY_REQUEST_LIMIT (ai& model requests per employee per day, 0 = unlimited, default 3000),
+//   KIMI_EGRESS_MODE (open | log | allowlist, default open), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
 // Flags: --dry-run, --rotate-internal (new BRIDGE/COOKIE/ADMIN secrets), --yes (no prompts).
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -179,6 +181,12 @@ async function main() {
     if (!/^[1-9][0-9]*$/.test(raw)) fail(`${name} must be a positive whole number.`);
     return raw;
   };
+  const countVar = (name, fallback) => {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return String(fallback);
+    if (!/^(0|[1-9][0-9]*)$/.test(raw)) fail(`${name} must be a whole number (0 = unlimited).`);
+    return raw;
+  };
   const previousVars = existsSync(DEPLOY_CONFIG) ? readJsonc(DEPLOY_CONFIG).vars ?? {} : {};
   const pick = (name) => previousVars[name] ?? config.vars?.[name];
   config.vars = {
@@ -186,8 +194,14 @@ async function main() {
     SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 4),
     MAX_AGENTS_CAP: intVar('KIMI_MAX_AGENTS_CAP', pick('MAX_AGENTS_CAP') ?? 32),
     DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 4),
+    AIAND_DAILY_REQUEST_LIMIT: countVar('KIMI_DAILY_REQUEST_LIMIT', pick('AIAND_DAILY_REQUEST_LIMIT') ?? 3000),
+    EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'open',
+    EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
   };
+  if (!['open', 'log', 'allowlist'].includes(config.vars.EGRESS_MODE)) fail('KIMI_EGRESS_MODE must be open, log or allowlist.');
   ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
+  const limit = config.vars.AIAND_DAILY_REQUEST_LIMIT;
+  ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Firecrawl only'})` : ''}`);
 
   // Where employee containers may run (data residency / latency).
   const REGIONS = ['ENAM', 'WNAM', 'EEUR', 'WEUR', 'APAC', 'SAM', 'ME', 'OC', 'AFR'];
