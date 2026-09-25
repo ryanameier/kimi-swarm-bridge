@@ -24204,7 +24204,7 @@ function createMcpServer(options = {}) {
     jobOwner
   });
   const server = new McpServer(
-    { name: "kimi-swarm-bridge", version: "0.3.4" },
+    { name: "kimi-swarm-bridge", version: "0.4.0" },
     options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : void 0
   );
   server.registerTool(

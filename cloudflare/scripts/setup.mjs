@@ -167,6 +167,18 @@ async function main() {
     }
   }
 
+  // Backups of employees who stop using Kimi Swarm expire after 90 days.
+  const lifecycle = DRY_RUN ? '' : (wrangler(['r2', 'bucket', 'lifecycle', 'list', bucketName], { allowFail: true }) ?? '');
+  if (String(lifecycle).includes('kimi-backups-expiry')) {
+    ok('backups expire after 90 days without a newer backup');
+  } else {
+    plan(`add a 90-day expiry rule for backups in ${bucketName}`);
+    if (!DRY_RUN) {
+      wrangler(['r2', 'bucket', 'lifecycle', 'add', bucketName, 'kimi-backups-expiry', 'backups/', '--expire-days', '90', '--force']);
+      ok('backups expire after 90 days without a newer backup');
+    }
+  }
+
   // 3. Deploy config (account-specific, git-ignored)
   step(3, 'Writing wrangler.deploy.jsonc');
   const config = { ...template, name: workerName };

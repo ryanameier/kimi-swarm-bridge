@@ -173,14 +173,21 @@ curl -X POST -H "authorization: Bearer $ADMIN_TOKEN" \
   | `POST …/backup` | back up now |
   | `POST …/restart` | stop the container; the next request restores and starts it |
   | `POST …/selftest` | checks inside the container: no real keys present; ai&, Firecrawl, HTTPS, git, pip and npm reachable (one small ai& request) |
+  | `GET /admin/sandboxes` | signed-in employees: sandbox id, name, number of sign-ins |
+  | `DELETE /admin/sandboxes/<id>` | offboard: revoke the employee's sign-ins, destroy their container, delete its state and backups |
+  | `GET /admin/backups` | every backup in R2 with owner sandbox, size and date |
+  | `DELETE /admin/backups/<backup-id>` | delete one backup |
 
-  Sandbox IDs are `user-` + the first 40 hex characters of SHA-256 of the Access subject.
+  Sandbox IDs are `user-` + the first 40 hex characters of SHA-256 of the Access subject;
+  `GET /admin/sandboxes` lists them with names. To remove an employee, take them out of the
+  Access policy (so they cannot sign in again) and call `DELETE /admin/sandboxes/<id>`.
 - `npm run smoke -- https://kimi-swarm-bridge.<sub>.workers.dev` checks a live deployment
   (OAuth discovery; MCP, file-link and admin endpoints reject unauthenticated callers). With
   `ADMIN_TOKEN` and `KIMI_SMOKE_SANDBOX=<sandbox-id>` set it also runs the self-test.
 - Connecting a client or refreshing its tool list does not wake a sleeping container: the
   Worker answers the MCP handshake and tool list from a snapshot captured once per deploy.
-- Backups expire after 90 days without a newer backup (R2 lifecycle).
+- Each directory keeps its two newest backups. Backups expire after 90 days without a newer
+  backup (an R2 lifecycle rule that setup creates).
 
 ## Security model
 

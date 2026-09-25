@@ -116,7 +116,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     jobOwner,
   });
   const server = new McpServer(
-    { name: 'kimi-swarm-bridge', version: '0.3.4' },
+    { name: 'kimi-swarm-bridge', version: '0.4.0' },
     options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : undefined,
   );
 

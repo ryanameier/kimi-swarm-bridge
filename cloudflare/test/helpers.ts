@@ -14,6 +14,25 @@ export class MemoryKv implements SnapshotStore {
 	async put(key: string, value: string) {
 		this.data.set(key, value);
 	}
+	async list({ prefix }: { prefix: string; cursor?: string }) {
+		return { keys: [...this.data.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })), list_complete: true };
+	}
+}
+
+/** In-memory R2 bucket with the operations the backup helpers use. */
+export class MemoryBucket {
+	readonly objects = new Map<string, string>();
+	async list({ prefix }: { prefix: string; cursor?: string }) {
+		const objects = [...this.objects.entries()].filter(([k]) => k.startsWith(prefix)).map(([key, v]) => ({ key, size: v.length }));
+		return { objects, truncated: false };
+	}
+	async get(key: string) {
+		const value = this.objects.get(key);
+		return value === undefined ? null : { json: async <T>() => JSON.parse(value) as T };
+	}
+	async delete(keys: string | string[]) {
+		for (const key of [keys].flat()) this.objects.delete(key);
+	}
 }
 
 export function makeEnv(overrides: Partial<RouteEnv> = {}): RouteEnv & { OAUTH_KV: MemoryKv } {
@@ -44,6 +63,7 @@ export function makeSandbox(containerResponse: (request: Request) => Response | 
 		usage: vi.fn(async () => ({ date: "2026-09-25", modelRequests: 5, dailyLimit: 3000 })),
 		restartRuntime: vi.fn(async () => {}),
 		selfTest: vi.fn(async () => ({ aiand: { ok: true, detail: "200" } })),
+		offboard: vi.fn(async () => ({ deletedBackups: ["b1"] })),
 	} satisfies SandboxApi;
 	const requested: string[] = [];
 	const deps: RouteDeps = {

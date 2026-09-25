@@ -1,5 +1,6 @@
 import { cachedSnapshot, planSessionRequest, readRpcResult, saveSnapshot, snapshotKey, snapshotResponse, type SnapshotStore } from "./mcp-session";
 import type { Props } from "./workers-oauth-utils";
+import { deleteBackup, listBackups, type BackupBucket } from "./backups";
 
 /**
  * HTTP routes of the Worker: MCP (after OAuth), signed file links and admin
@@ -33,13 +34,17 @@ export interface SandboxApi {
 	usage(): Promise<{ date: string; modelRequests: number; dailyLimit: number }>;
 	restartRuntime(): Promise<void>;
 	selfTest(sandboxId: string, publicBaseUrl: string): Promise<Record<string, { ok: boolean; detail: string }>>;
+	offboard(sandboxId: string): Promise<{ deletedBackups: string[] }>;
 }
 
 export interface RouteEnv {
 	BRIDGE_TOKEN: string;
 	ADMIN_TOKEN?: string;
-	OAUTH_KV: SnapshotStore;
+	OAUTH_KV: SnapshotStore & GrantKv;
 	CF_VERSION_METADATA?: { id: string };
+	BACKUP_BUCKET?: BackupBucket;
+	/** Injected by the OAuth provider into non-API handlers. */
+	OAUTH_PROVIDER?: GrantAdmin;
 }
 
 export interface RouteDeps<E extends RouteEnv = RouteEnv> {
@@ -225,39 +230,111 @@ export async function handleFileRoute<E extends RouteEnv>(request: Request, env:
 	return response;
 }
 
+/** OAuth grant bookkeeping, used to list and offboard employees. */
+interface GrantKv {
+	list(options: { prefix: string; cursor?: string }): Promise<{ keys: { name: string }[]; list_complete: boolean; cursor?: string }>;
+}
+
+export interface GrantAdmin {
+	listUserGrants(userId: string): Promise<{ items: { id: string; createdAt?: number; metadata?: { label?: string } }[] }>;
+	revokeGrant(grantId: string, userId: string): Promise<void>;
+}
+
+/** Signed-in users (Access subjects) with grants, keyed by their sandbox id. */
+export async function grantUsersBySandbox(kv: GrantKv): Promise<Map<string, { userId: string; grantIds: string[] }>> {
+	const users = new Map<string, { userId: string; grantIds: string[] }>();
+	let cursor: string | undefined;
+	do {
+		const page = await kv.list({ prefix: "grant:", cursor });
+		for (const { name } of page.keys) {
+			const rest = name.slice("grant:".length);
+			const split = rest.lastIndexOf(":");
+			if (split <= 0) continue;
+			const userId = rest.slice(0, split);
+			const sandboxId = await sandboxIdFor(userId);
+			const entry = users.get(sandboxId) ?? { userId, grantIds: [] };
+			entry.grantIds.push(rest.slice(split + 1));
+			users.set(sandboxId, entry);
+		}
+		cursor = page.list_complete ? undefined : page.cursor;
+	} while (cursor);
+	return users;
+}
+
+function adminAuthorized(request: Request, env: RouteEnv): boolean {
+	const supplied = new TextEncoder().encode(request.headers.get("authorization") ?? "");
+	const expected = new TextEncoder().encode(`Bearer ${env.ADMIN_TOKEN}`);
+	return !!env.ADMIN_TOKEN && supplied.byteLength === expected.byteLength && crypto.subtle.timingSafeEqual(supplied, expected);
+}
+
 /**
  * Operator endpoints, authenticated with the ADMIN_TOKEN secret:
- *   GET  /admin/sandboxes/<id>          backup status and today's ai& usage
- *   POST /admin/sandboxes/<id>/backup   back up now
- *   POST /admin/sandboxes/<id>/selftest fixed checks: no real keys in the container; ai&, Firecrawl, web, git, pip, npm reachable
- *   POST /admin/sandboxes/<id>/restart  stop the container (applies new images; next request restores)
+ *   GET    /admin/sandboxes                 signed-in employees (sandbox id, name, grants)
+ *   GET    /admin/sandboxes/<id>            backup status and today's ai& usage
+ *   POST   /admin/sandboxes/<id>/backup     back up now
+ *   POST   /admin/sandboxes/<id>/selftest   fixed checks: no real keys in the container; ai&, Firecrawl, web, git, pip, npm reachable
+ *   POST   /admin/sandboxes/<id>/restart    stop the container (applies new images; next request restores)
+ *   DELETE /admin/sandboxes/<id>            offboard: revoke sign-ins, destroy the container, delete its state and backups
+ *   GET    /admin/backups                   all backups in R2 with owner, size and date
+ *   DELETE /admin/backups/<backup-id>       delete one backup
  */
 export async function handleAdminRoute<E extends RouteEnv>(request: Request, env: E, deps: RouteDeps<E>): Promise<Response | null> {
 	const url = new URL(request.url);
-	const match = /^\/admin\/sandboxes\/([^/]+)(?:\/(backup|restart|selftest))?$/.exec(url.pathname);
+	const match = /^\/admin\/(sandboxes|backups)(?:\/([^/]+)(?:\/(backup|restart|selftest))?)?$/.exec(url.pathname);
 	if (!match) return null;
+	if (!adminAuthorized(request, env)) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-	const supplied = new TextEncoder().encode(request.headers.get("authorization") ?? "");
-	const expected = new TextEncoder().encode(`Bearer ${env.ADMIN_TOKEN}`);
-	if (!env.ADMIN_TOKEN || supplied.byteLength !== expected.byteLength || !crypto.subtle.timingSafeEqual(supplied, expected)) {
-		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	const [, collection, id, action] = match;
+	const methodNotAllowed = () => Response.json({ error: "Method not allowed" }, { status: 405 });
+
+	if (collection === "backups") {
+		if (!env.BACKUP_BUCKET) return Response.json({ error: "No backup bucket bound" }, { status: 501 });
+		if (action) return null;
+		if (!id) return request.method === "GET" ? Response.json({ backups: await listBackups(env.BACKUP_BUCKET) }) : methodNotAllowed();
+		if (request.method !== "DELETE") return methodNotAllowed();
+		if (!/^[A-Za-z0-9_-]+$/.test(id)) return Response.json({ error: "Invalid backup id" }, { status: 400 });
+		return Response.json({ deleted: id, objects: await deleteBackup(env.BACKUP_BUCKET, id) });
 	}
-	if (!SANDBOX_ID_PATTERN.test(match[1])) return Response.json({ error: "Unknown sandbox id" }, { status: 400 });
 
-	const sandbox = deps.sandbox(env, match[1]);
-	if (!match[2] && request.method === "GET") {
+	if (!id) {
+		if (request.method !== "GET") return methodNotAllowed();
+		const users = await grantUsersBySandbox(env.OAUTH_KV);
+		const sandboxes = [];
+		for (const [sandboxId, { userId, grantIds }] of users) {
+			const grants = env.OAUTH_PROVIDER ? (await env.OAUTH_PROVIDER.listUserGrants(userId)).items : [];
+			sandboxes.push({ sandboxId, name: grants[0]?.metadata?.label ?? null, grants: grantIds.length });
+		}
+		return Response.json({ sandboxes });
+	}
+
+	if (!SANDBOX_ID_PATTERN.test(id)) return Response.json({ error: "Unknown sandbox id" }, { status: 400 });
+	const sandbox = deps.sandbox(env, id);
+
+	if (!action && request.method === "GET") {
 		return Response.json({ ...(await sandbox.backupStatus()), usage: await sandbox.usage() });
 	}
-	if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
+	if (!action && request.method === "DELETE") {
+		let revokedGrants = 0;
+		const owner = (await grantUsersBySandbox(env.OAUTH_KV)).get(id);
+		if (owner && env.OAUTH_PROVIDER) {
+			for (const grantId of owner.grantIds) {
+				await env.OAUTH_PROVIDER.revokeGrant(grantId, owner.userId);
+				revokedGrants += 1;
+			}
+		}
+		const { deletedBackups } = await sandbox.offboard(id);
+		return Response.json({ offboarded: id, revokedGrants, deletedBackups });
+	}
+	if (request.method !== "POST" || !action) return methodNotAllowed();
 
-	if (match[2] === "selftest") {
-		const results = await sandbox.selfTest(match[1], url.origin);
+	if (action === "selftest") {
+		const results = await sandbox.selfTest(id, url.origin);
 		return Response.json({ ok: Object.values(results).every((r) => r.ok), results });
 	}
-	if (match[2] === "backup") {
+	if (action === "backup") {
 		await sandbox.backupNow(false);
 		return Response.json(await sandbox.backupStatus());
 	}
 	await sandbox.restartRuntime();
-	return Response.json({ restarted: match[1] });
+	return Response.json({ restarted: id });
 }

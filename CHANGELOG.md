@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-09-25)
 
 Organization deployment on Cloudflare: every employee gets Kimi Swarm in Claude with their own
 isolated workspace, signing in through the organization's identity provider. Admin guide:
@@ -24,7 +24,11 @@ isolated workspace, signing in through the organization's identity provider. Adm
   wake a sleeping container and sessions survive container restarts.
 - Containers stay awake while Kimi works (up to 6 hours unattended) and sleep after 30 minutes
   idle.
-- Admin endpoints: status and usage, backup, restart, in-container self-test.
+- Admin endpoints: list employees, status and usage, backup, restart, in-container self-test,
+  offboarding (revokes sign-ins, destroys the container, deletes its state and backups), and
+  backup listing/deletion.
+- Backups are named after their sandbox; each directory keeps its two newest backups, and setup
+  adds a 90-day R2 expiry rule for employees who stop using Kimi Swarm.
 - Container workbench: python3, pypdf, reportlab, python-docx, openpyxl, pillow, poppler, git,
   zip, ripgrep, jq; `firecrawl-mcp` for web search and scraping.
 

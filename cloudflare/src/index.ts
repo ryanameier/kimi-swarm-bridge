@@ -2,6 +2,7 @@ import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
 import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type RouteDeps } from "./routes";
+import { backupName, deleteBackup, listBackups } from "./backups";
 import { AIAND_PLACEHOLDER, CREDENTIAL_HOSTS, FIRECRAWL_PLACEHOLDER, egressMode, type ModelBudgetResult } from "./egress";
 
 // Outbound interception entrypoint: attaches API keys, enforces budgets and egress policy.
@@ -50,6 +51,7 @@ export class KimiSandbox extends Sandbox<Env> {
 
 	private readonly bridgeToken: string;
 	private egressConfigured = false;
+	private knownSandboxId?: string;
 	private starting?: Promise<void>;
 	private backingUp?: Promise<void>;
 	private rerun?: Promise<void>;
@@ -75,6 +77,10 @@ export class KimiSandbox extends Sandbox<Env> {
 
 	/** Make sure the bridge is serving; restores state and starts it on a fresh container. */
 	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void> {
+		if (this.knownSandboxId !== sandboxId) {
+			await this.ctx.storage.put("sandboxId", sandboxId);
+			this.knownSandboxId = sandboxId;
+		}
 		await this.ctx.storage.delete("busySince");
 		await this.configureEgress();
 		if (await this.bridgeHealthy()) return;
@@ -182,6 +188,33 @@ export class KimiSandbox extends Sandbox<Env> {
 			}
 		}
 		return results;
+	}
+
+	/**
+	 * Remove this employee's workspace: destroy the container and delete its
+	 * backups and Durable Object state. The next sign-in starts from scratch.
+	 */
+	async offboard(sandboxId: string): Promise<{ deletedBackups: string[] }> {
+		try {
+			await this.destroy();
+		} catch (error) {
+			console.error("destroy during offboard failed", error);
+		}
+		const ids = new Set<string>();
+		for (const dir of PERSISTED_DIRS) {
+			for (const key of [`backup:${dir}`, `backup:${dir}:previous`]) {
+				const handle = await this.ctx.storage.get<DirectoryBackup>(key);
+				if (handle) ids.add(handle.id);
+			}
+		}
+		for (const backup of await listBackups(this.env.BACKUP_BUCKET)) {
+			if (backup.sandboxId === sandboxId) ids.add(backup.id);
+		}
+		for (const id of ids) await deleteBackup(this.env.BACKUP_BUCKET, id);
+		await this.ctx.storage.deleteAlarm();
+		await this.ctx.storage.deleteAll();
+		this.knownSandboxId = undefined;
+		return { deletedBackups: [...ids] };
 	}
 
 	/** Start a backup without waiting for it (used after uploads and completed jobs). */
@@ -294,14 +327,22 @@ export class KimiSandbox extends Sandbox<Env> {
 					continue;
 				}
 			}
+			const sandboxId = (await this.ctx.storage.get<string>("sandboxId")) ?? "user-unknown";
 			const handle = await this.createBackup({
 				dir,
-				name: `${dir.replace(/\//g, "_")}-${new Date().toISOString()}`,
+				name: backupName(sandboxId, dir),
 				ttl: BACKUP_TTL_SECONDS,
 				excludes: BACKUP_EXCLUDES,
 				localBucket: true,
 			});
+			// Keep the newest two backups per directory; delete older ones.
+			const previous = await this.ctx.storage.get<DirectoryBackup>(`backup:${dir}`);
+			const superseded = await this.ctx.storage.get<DirectoryBackup>(`backup:${dir}:previous`);
 			await this.ctx.storage.put(`backup:${dir}`, handle);
+			if (previous) await this.ctx.storage.put(`backup:${dir}:previous`, previous);
+			if (superseded && superseded.id !== previous?.id) {
+				await deleteBackup(this.env.BACKUP_BUCKET, superseded.id).catch((error) => console.error("pruning old backup failed", error));
+			}
 		}
 		if (skipped.length) await this.ctx.storage.put("backupSkipped", { at: Date.now(), dirs: skipped });
 		else if (dirs.length === PERSISTED_DIRS.length) await this.ctx.storage.delete("backupSkipped");

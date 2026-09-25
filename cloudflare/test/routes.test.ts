@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createMcpHandler, handleAdminRoute, handleFileRoute, sandboxIdFor } from "../src/routes";
+import { vi } from "vitest";
+import { MemoryBucket } from "./helpers";
 import { ADMIN_TOKEN, BRIDGE_TOKEN, SANDBOX_ID, executionContext, makeEnv, makeSandbox, rpc, signGrant } from "./helpers";
 
 const BASE = "https://kimi.example.workers.dev";
@@ -250,5 +252,53 @@ describe("admin routes", () => {
 		const selftest = (await (await handleAdminRoute(admin(`${SANDBOX_ID}/selftest`, "POST"), env, deps))!.json()) as { ok: boolean };
 		expect(selftest.ok).toBe(true);
 		expect(sandbox.selfTest).toHaveBeenCalledWith(SANDBOX_ID, BASE);
+	});
+
+	it("lists signed-in employees and offboards one, revoking their sign-ins", async () => {
+		const { deps, sandbox, requested } = makeSandbox();
+		const env = makeEnv();
+		const aliceSandbox = await sandboxIdFor("sub-alice");
+		env.OAUTH_KV.data.set("grant:sub-alice:g1", "{}");
+		env.OAUTH_KV.data.set("grant:sub-alice:g2", "{}");
+		env.OAUTH_KV.data.set("grant:sub-bob:g3", "{}");
+		const revokeGrant = vi.fn(async () => {});
+		const provider = {
+			listUserGrants: async (userId: string) => ({ items: [{ id: "g", metadata: { label: userId === "sub-alice" ? "Alice" : "Bob" } }] }),
+			revokeGrant,
+		};
+		const withProvider = { ...env, OAUTH_PROVIDER: provider };
+
+		const list = (await (await handleAdminRoute(new Request(`${BASE}/admin/sandboxes`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }), withProvider, deps))!.json()) as { sandboxes: { sandboxId: string; name: string; grants: number }[] };
+		expect(list.sandboxes).toContainEqual({ sandboxId: aliceSandbox, name: "Alice", grants: 2 });
+		expect(list.sandboxes).toHaveLength(2);
+
+		const result = (await (await handleAdminRoute(admin(aliceSandbox, "DELETE"), withProvider, deps))!.json()) as { revokedGrants: number; deletedBackups: string[] };
+		expect(result).toMatchObject({ revokedGrants: 2, deletedBackups: ["b1"] });
+		expect(revokeGrant.mock.calls).toEqual([["g1", "sub-alice"], ["g2", "sub-alice"]]);
+		expect(sandbox.offboard).toHaveBeenCalledWith(aliceSandbox);
+		expect(requested).toEqual([aliceSandbox]);
+	});
+
+	it("lists and deletes backups", async () => {
+		const { deps } = makeSandbox();
+		const bucket = new MemoryBucket();
+		bucket.objects.set("backups/b1/data.sqsh", "xxxx");
+		bucket.objects.set("backups/b1/meta.json", JSON.stringify({ name: `${SANDBOX_ID}_workspace-2026-09-25T00:00:00.000Z`, dir: "/workspace", createdAt: "2026-09-25" }));
+		bucket.objects.set("backups/b2/meta.json", JSON.stringify({ name: "_home_kimi-2026-09-24T00:00:00.000Z", dir: "/home/kimi", createdAt: "2026-09-24" }));
+		const env = { ...makeEnv(), BACKUP_BUCKET: bucket };
+
+		const listed = (await (await handleAdminRoute(new Request(`${BASE}/admin/backups`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }), env, deps))!.json()) as {
+			backups: { id: string; sandboxId: string | null }[];
+		};
+		expect(listed.backups.map((b) => [b.id, b.sandboxId])).toEqual([["b1", SANDBOX_ID], ["b2", null]]);
+
+		const del = await handleAdminRoute(new Request(`${BASE}/admin/backups/b1`, { method: "DELETE", headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }), env, deps);
+		expect(await del!.json()).toEqual({ deleted: "b1", objects: 2 });
+		expect([...bucket.objects.keys()]).toEqual(["backups/b2/meta.json"]);
+
+		const bad = await handleAdminRoute(new Request(`${BASE}/admin/backups/..%2Fx`, { method: "DELETE", headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }), env, deps);
+		expect(bad!.status).toBe(400);
+		const unauth = await handleAdminRoute(new Request(`${BASE}/admin/backups`), env, deps);
+		expect(unauth!.status).toBe(401);
 	});
 });
