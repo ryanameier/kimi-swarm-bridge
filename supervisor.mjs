@@ -44,6 +44,8 @@ async function registerInternetTools() {
       "KIMI_MODEL_API_KEY",
       "KIMI_READER_MODEL",
       "KIMI_BROWSER_RENDERING",
+      "KIMI_WORKER_SOFT_BUDGET_S",
+      "KIMI_WORKER_HARD_BUDGET_S",
       "NODE_EXTRA_CA_CERTS",
       "HTTPS_PROXY",
       "HTTP_PROXY",
