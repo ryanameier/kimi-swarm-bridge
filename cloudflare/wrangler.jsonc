@@ -1,3 +1,4 @@
+// Template. `npm run setup` writes the account-specific wrangler.deploy.jsonc used for deploys.
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "kimi-swarm-bridge",
@@ -23,7 +24,7 @@
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
 	"r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "kimi-swarm-backups" }],
 	"vars": { "ORGANIZATION_ID": "default" },
-	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "37efc78a9bb646608c9650e7a720b599" }],
+	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "set-by-npm-run-setup" }],
 	"secrets": {
 		"required": [
 			"AIAND_API_KEY",

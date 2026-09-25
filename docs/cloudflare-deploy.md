@@ -37,56 +37,55 @@ Vendors: **Cloudflare**, **ai&**, and **Firecrawl** (optional; paid plan for com
 ## Prerequisites
 
 - Cloudflare account with **Workers Paid** ($5/month; required for Containers), **R2** enabled,
-  and **Zero Trust** (Free plan covers 50 users).
+  **Zero Trust** (Free plan covers 50 users), and a workers.dev subdomain (open Workers & Pages
+  once to create it).
 - ai& API key. Firecrawl API key (optional).
 - Node 22, Docker (to build the container image), and `npx wrangler login`.
 
-## 1. Sign-in: Access for SaaS (OIDC)
+## 1. Run setup
 
-Zero Trust → **Access controls → Applications → Create new application → SaaS applications**:
+```bash
+cd cloudflare
+npm install
+npx wrangler login
+npm run setup
+```
+
+`npm run setup` checks the prerequisites, creates this deployment's sign-in storage (KV) and
+backup bucket (R2), asks where containers may run, walks you through the one dashboard step
+(below), validates your ai&, Firecrawl and Access values, generates the internal secrets,
+deploys (the first build takes a few minutes), confirms the Worker answers, and prints the
+Claude settings. It is safe to re-run: existing resources and secrets are kept.
+`npm run setup -- --dry-run` shows the plan without changing anything.
+
+**The one dashboard step (setup prints the exact redirect URL):** Zero Trust →
+**Access controls → Applications → Create new application → SaaS applications**:
 
 | Field | Value |
 |---|---|
 | Application | `Kimi Swarm` (custom) |
 | Authentication protocol | OIDC |
-| Redirect URL | `https://kimi-swarm-bridge.<your-subdomain>.workers.dev/callback` |
+| Redirect URL | `https://<worker-name>.<your-subdomain>.workers.dev/callback` |
 | Scopes | `openid`, `email`, `profile` |
 | Grant type | Authorization code with PKCE |
-| Policy | Allow → your group or email domain (this is how you assign employees) |
+| Login method | Your identity provider (Google Workspace, Okta, Entra, …), or One-time PIN for a pilot |
+| Policy | Allow → the employees or groups who should get Kimi Swarm |
 
-Use your identity provider (Google Workspace, Okta, Entra, …) as the login method, or
-One-time PIN for a pilot. Note the Client ID, Client secret and the authorization, token and
-key (JWKS) endpoints.
+This policy is how you assign Kimi Swarm to people. Give setup the team name, client ID and
+client secret it shows.
 
-## 2. Configure and deploy
+### Unattended setup
 
-```bash
-cd cloudflare
-npm install
-npx wrangler kv namespace create OAUTH_KV      # put the id into wrangler.jsonc
-npx wrangler r2 bucket create kimi-swarm-backups
-```
+Every prompt has an environment variable: `AIAND_API_KEY`, `FIRECRAWL_API_KEY` (`disabled`
+to turn off web tools), `ACCESS_TEAM`, `ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRET`,
+`KIMI_WORKER_NAME`, `KIMI_REGIONS` (e.g. `ENAM,WNAM`), `KIMI_JURISDICTION` (`eu` or
+`fedramp`). Run `npm run setup -- --yes`. `--rotate-internal` replaces the generated
+`BRIDGE_TOKEN`, `COOKIE_ENCRYPTION_KEY` and `ADMIN_TOKEN`.
 
-Secrets (`npx wrangler secret put <NAME>` or `wrangler secret bulk`):
+Setup writes `wrangler.deploy.jsonc` (account-specific, git-ignored). Later deploys:
+`npm run deploy`.
 
-| Secret | Value |
-|---|---|
-| `AIAND_API_KEY` | ai& key |
-| `FIRECRAWL_API_KEY` | Firecrawl key, or an empty string to disable web tools |
-| `ACCESS_CLIENT_ID`, `ACCESS_CLIENT_SECRET` | from step 1 |
-| `ACCESS_AUTHORIZATION_URL`, `ACCESS_TOKEN_URL`, `ACCESS_JWKS_URL` | from step 1 |
-| `BRIDGE_TOKEN` | random, e.g. `openssl rand -hex 32` (Worker↔container credential and file-link key root) |
-| `COOKIE_ENCRYPTION_KEY` | random |
-| `ADMIN_TOKEN` | random; protects the operator endpoints below |
-
-```bash
-npx wrangler deploy
-```
-
-The first deploy builds the container image from the repository `Dockerfile`
-(`IMAGE_VARIANT=cloudflare`) and takes a few minutes.
-
-## 3. Add the connector in Claude
+## 2. Add the connector in Claude
 
 Claude → **Settings → Connectors → Add custom connector** →
 `https://kimi-swarm-bridge.<your-subdomain>.workers.dev/mcp`. On Team/Enterprise an owner can
@@ -106,7 +105,7 @@ share download links.
 | Upload link (this bridge) | 100 MB per file by default (`KIMI_MAX_UPLOAD_BYTES`); single use; 15 min |
 | Download link | 1 hour, reusable until expiry |
 | Worker request body | 100 MB+ depending on Cloudflare plan |
-| Container | `standard-2` instance; disk is ephemeral, persisted via R2 backups |
+| Container | `standard-2` instance; disk is ephemeral, persisted via R2 backups; region set by `KIMI_REGIONS` |
 
 ## Operations
 

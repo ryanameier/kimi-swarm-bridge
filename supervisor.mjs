@@ -16,7 +16,7 @@ applyAiandRuntimePolicy(process.env);
 async function registerInternetTools() {
   const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
 
-  if (!firecrawlKey) {
+  if (!firecrawlKey || firecrawlKey === "disabled") {
     return;
   }
 

@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "setup": "node scripts/setup.mjs",
+    "deploy": "wrangler deploy -c wrangler.deploy.jsonc",
+    "dev": "wrangler dev -c wrangler.deploy.jsonc",
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types"
   },
