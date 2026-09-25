@@ -167,6 +167,8 @@ export class KimiSandbox extends Sandbox<Env> {
 			git: `git ls-remote https://github.com/cloudflare/sandbox-sdk HEAD | cut -c1-12`,
 			pip: `python3 -c "import urllib.request;print(urllib.request.urlopen('https://pypi.org/simple/six/',timeout=30).status)"`,
 			npm: `npm view left-pad version`,
+			// Which bridge build this container runs (after a deploy, confirms the new image).
+			build: `date -u -r /app/dist/index.js +%Y-%m-%dT%H:%M:%SZ`,
 		};
 		const expect: Record<string, (out: string) => boolean> = {
 			placeholderKeys: (out) => out === "placeholders-only",
@@ -176,6 +178,7 @@ export class KimiSandbox extends Sandbox<Env> {
 			git: (out) => /^[0-9a-f]{12}$/.test(out),
 			pip: (out) => out === "200",
 			npm: (out) => /^\d+\.\d+\.\d+$/.test(out),
+			build: (out) => /^\d{4}-/.test(out),
 		};
 		const results: Record<string, { ok: boolean; detail: string }> = {};
 		for (const [name, command] of Object.entries(checks)) {

@@ -51,7 +51,8 @@ export interface SwarmEvidence {
 export interface ReadSwarmEvidenceInput {
   kimiCodeHome?: string;
   sessionId: string;
-  pricing?: ModelPricing;
+  /** Prices by model id; each agent is priced by the model its requests used. */
+  prices?: Map<string, ModelPricing>;
 }
 
 const EMPTY_USAGE: TokenUsage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
@@ -246,10 +247,26 @@ export async function readSwarmEvidence(input: ReadSwarmEvidenceInput): Promise<
     cacheWriteTokens: total.cacheWriteTokens + agent.usage.cacheWriteTokens,
     outputTokens: total.outputTokens + agent.usage.outputTokens,
   }), { ...EMPTY_USAGE });
+  let estimatedCostUsd: number | undefined;
+  if (input.prices) {
+    estimatedCostUsd = 0;
+    for (const agent of everyone) {
+      const pricing = agent.models.map((model) => input.prices!.get(model)).find(Boolean);
+      if (!pricing) {
+        if (agent.requestCount > 0) {
+          estimatedCostUsd = undefined;
+          break;
+        }
+        continue;
+      }
+      estimatedCostUsd += estimateCostUsd(agent.usage, pricing);
+    }
+    if (estimatedCostUsd !== undefined) estimatedCostUsd = Math.round(estimatedCostUsd * 10_000) / 10_000;
+  }
   const totalUsage = {
     requestCount: everyone.reduce((count, agent) => count + agent.requestCount, 0),
     ...usage,
-    ...(input.pricing ? { estimatedCostUsd: estimateCostUsd(usage, input.pricing) } : {}),
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
   };
 
   return {

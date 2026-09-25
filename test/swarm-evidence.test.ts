@@ -90,7 +90,7 @@ describe('readSwarmEvidence', () => {
     const evidence = await readSwarmEvidence({
       kimiCodeHome: home,
       sessionId,
-      pricing: { inputPer1M: 3, outputPer1M: 12.5, cachedInputPer1M: 0.5 },
+      prices: new Map([['moonshotai/kimi-k3', { inputPer1M: 3, outputPer1M: 12.5, cachedInputPer1M: 0.5 }]]),
     });
 
     expect(evidence).toEqual({

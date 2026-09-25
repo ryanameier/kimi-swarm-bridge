@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `kimi_model_settings`: users switch the ai& models Kimi uses from chat, separately for the
+  coordinator and the AgentSwarm workers (for example a cheaper worker model). The tool lists the
+  ai& models with live prices; admins can narrow the list with `KIMI_ALLOWED_MODELS`. Choices are
+  per user, persist, and are applied through Kimi Code's config (hot reloaded, no restart).
+- Task results report token usage per agent and an estimated USD cost from ai& prices.
+- Kimi is told to use the fewest workers that do the task well, overriding Kimi Code's default
+  guidance to maximize agents; the per-user ceiling stays an upper bound.
+- The admin self-test reports which bridge build a container runs.
+
 ## 0.4.0 (2026-09-25)
 
 Organization deployment on Cloudflare: every employee gets Kimi Swarm in Claude with their own

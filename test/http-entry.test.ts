@@ -173,7 +173,7 @@ describe('HTTP MCP entrypoint', () => {
       'kimi_list_files',
       'kimi_file_panel',
     ]));
-    expect(tools).toHaveLength(19);
+    expect(tools).toHaveLength(20);
 
     const statusResult = await first.client.callTool({
       name: 'kimi_bridge_status',
@@ -237,7 +237,7 @@ describe('HTTP MCP entrypoint', () => {
     const statelessList = await rpc('tools/list', {});
     expect(statelessList.response.status).toBe(200);
     expect(statelessList.response.headers.get('mcp-session-id')).toBeNull();
-    expect(statelessList.message.result.tools).toHaveLength(19);
+    expect(statelessList.message.result.tools).toHaveLength(20);
 
     const statelessClaude = await rpc('tools/list', {}, 'claude-ai');
     const statelessClaudeTools = statelessClaude.message.result.tools.map((tool: { name: string }) => tool.name);

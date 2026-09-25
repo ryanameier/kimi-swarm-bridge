@@ -14,6 +14,7 @@ import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
 import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
 import { registerSwarmSettingsTool } from './swarm-tools.js';
+import { registerModelSettingsTool } from './model-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -303,6 +304,11 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
   );
 
   registerSwarmSettingsTool(server, config.stateDir);
+  registerModelSettingsTool(server, {
+    stateDir: config.stateDir,
+    kimiCodeHome: config.kimiCodeHome,
+    defaultThinking: config.defaultThinking,
+  });
 
   if (options.fileTransfer) {
     registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });
