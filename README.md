@@ -13,6 +13,10 @@ This fork is built around one runtime policy:
 
 The project began as a fork of [`ximenchuifeng/codex-kimi-bridge`](https://github.com/ximenchuifeng/codex-kimi-bridge) and remains available under the MIT License.
 
+## Organization deployment
+
+To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md).
+
 ## What it provides
 
 The bridge exposes Kimi Code through MCP with support for:
@@ -539,7 +543,7 @@ The container defaults to Streamable HTTP transport for hosted use.
 - Kimi's REST API should remain bound to `127.0.0.1`.
 - Expose the MCP endpoint through HTTPS in hosted environments.
 - Durable job ownership requires both `KIMI_ORGANIZATION_ID` and `KIMI_CONNECTOR_INSTANCE_ID`; job IDs and Kimi session IDs are not authorization credentials.
-- Persistent MCP job/session state does not by itself provide hardened multi-tenant isolation. The current pilot model uses an isolated connector/runtime per customer organization; shared multi-tenant deployments require stronger organization identity and workspace boundaries.
+- Persistent MCP job/session state does not by itself provide hardened multi-tenant isolation. The Docker image is meant for one connector/runtime per organization; for many employees use the Cloudflare edition, which gives each signed-in employee their own container and keeps API keys out of containers.
 
 ## Status
 
@@ -553,11 +557,22 @@ Validated so far:
 - cancellation
 - authenticated Streamable HTTP MCP
 - MCP disconnect/reconnect with job recovery
-- Docker runtime
+- Docker runtime (HTTP and stdio transports)
 - persistent Kimi state
 - managed-host-compatible `/ping` and `PORT` handling
 
-OpenWork integration and production multi-tenant identity are subsequent deployment milestones.
+Validated on the Cloudflare edition ([docs/cloudflare-deploy.md](docs/cloudflare-deploy.md)):
+
+- per-employee sign-in (Cloudflare Access OIDC) and isolated containers
+- files in and out of Claude chats through signed, single-use links
+- persistence of jobs, sessions and workspace files across container restarts
+- ai& and Firecrawl keys held by the Worker, never inside containers
+- per-employee daily ai& request budget and optional outbound logging/allowlist
+- per-employee agent ceiling set from chat
+- connector handshake and tool list served without waking a sleeping container
+- research, repository, download and coding tasks with web access
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes. OpenWork integration is a later milestone.
 
 ## Upstream and license
 

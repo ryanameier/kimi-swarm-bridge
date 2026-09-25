@@ -11,6 +11,9 @@ import { KimiApiError, KimiNetworkError } from './errors.js';
 import { KimiHttpClient } from './kimi/http.js';
 import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
+import type { FileTransferConfig } from './file-transfer.js';
+import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
+import { registerSwarmSettingsTool } from './swarm-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -77,7 +80,13 @@ export async function runToolHandler(handler: () => Promise<unknown>): Promise<{
   }
 }
 
-export function createMcpServer(): McpServer {
+export interface CreateMcpServerOptions {
+  fileTransfer?: FileTransferConfig;
+  /** clientInfo.name from the MCP initialize request. */
+  clientName?: string;
+}
+
+export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer {
   const config = loadBridgeConfig();
   const http = new KimiHttpClient(config.serverUrl, fetch, config.requestTimeoutMs, config.serverToken);
   const preflight = new KimiPreflight(config, http);
@@ -106,7 +115,10 @@ export function createMcpServer(): McpServer {
     jobRegistry,
     jobOwner,
   });
-  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.4' });
+  const server = new McpServer(
+    { name: 'kimi-swarm-bridge', version: '0.4.0' },
+    options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : undefined,
+  );
 
   server.registerTool(
     'kimi_delegate_task',
@@ -289,6 +301,12 @@ export function createMcpServer(): McpServer {
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input)),
   );
+
+  registerSwarmSettingsTool(server, config.stateDir);
+
+  if (options.fileTransfer) {
+    registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });
+  }
 
   return server;
 }

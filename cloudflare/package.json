@@ -1,0 +1,24 @@
+{
+  "name": "kimi-swarm-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "deploy": "wrangler deploy -c wrangler.deploy.jsonc",
+    "dev": "wrangler dev -c wrangler.deploy.jsonc",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "^0.12.10",
+    "@cloudflare/workers-oauth-provider": "^0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.139.0",
+    "vitest": "^3.2.7"
+  }
+}

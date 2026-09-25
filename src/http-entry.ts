@@ -7,7 +7,11 @@ import {
 import process from 'node:process';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { loadBridgeConfig } from './config.js';
+import { handleFileRequest, loadFileTransferConfig } from './file-transfer.js';
 import { createMcpServer } from './index.js';
+import { KimiClient } from './kimi/client.js';
+import { KimiHttpClient } from './kimi/http.js';
 
 const host = process.env.KIMI_MCP_HTTP_HOST?.trim() || '0.0.0.0';
 const port = Number.parseInt(process.env.KIMI_MCP_HTTP_PORT ?? '3000', 10);
@@ -24,6 +28,17 @@ if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 }
 
 const sessions = new Map<string, StreamableHTTPServerTransport>();
+const fileTransfer = loadFileTransferConfig();
+
+// Busy probe for the hosting layer: a sandbox must not sleep while Kimi works.
+async function kimiBusy(): Promise<boolean> {
+  const config = loadBridgeConfig();
+  const kimi = new KimiClient(
+    new KimiHttpClient(config.serverUrl, fetch, config.requestTimeoutMs, config.serverToken),
+  );
+  const { items } = await kimi.listSessions({ pageSize: 50, excludeEmpty: true });
+  return items.some((session) => session.status === 'running');
+}
 
 function sendJson(
   res: ServerResponse,
@@ -95,6 +110,54 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text);
 }
 
+/**
+ * Stateless MCP for fronting proxies that own the session layer (the
+ * Cloudflare Worker answers initialize and tools/list itself so a sleeping
+ * container is not woken, and it survives container restarts). Every request
+ * gets a fresh server; the proxy passes the client name for tool selection.
+ */
+async function handleStatelessRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    res.setHeader('allow', 'POST');
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  let body: unknown;
+
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendRpcError(
+      res,
+      400,
+      -32700,
+      error instanceof Error ? error.message : 'Invalid JSON',
+    );
+    return;
+  }
+
+  const clientHeader = req.headers['x-kimi-client-name'];
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  const mcpServer = createMcpServer({
+    fileTransfer,
+    clientName: typeof clientHeader === 'string' && clientHeader ? clientHeader : undefined,
+  });
+
+  res.on('close', () => {
+    void transport.close();
+    void mcpServer.close();
+  });
+
+  await mcpServer.connect(transport);
+  await transport.handleRequest(req, res, body);
+}
+
 async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -102,6 +165,11 @@ async function handleMcpRequest(
   if (!authorized(req)) {
     res.setHeader('www-authenticate', 'Bearer realm="kimi-swarm-mcp"');
     sendJson(res, 401, { error: 'Unauthorized' });
+    return;
+  }
+
+  if (req.headers['x-kimi-mcp-mode'] === 'stateless') {
+    await handleStatelessRequest(req, res);
     return;
   }
 
@@ -161,7 +229,11 @@ async function handleMcpRequest(
       }
     };
 
-    const mcpServer = createMcpServer();
+    const clientName = (body as { params?: { clientInfo?: { name?: unknown } } }).params?.clientInfo?.name;
+    const mcpServer = createMcpServer({
+      fileTransfer,
+      clientName: typeof clientName === 'string' ? clientName : undefined,
+    });
     await mcpServer.connect(transport);
     await transport.handleRequest(req, res, body);
     return;
@@ -200,6 +272,19 @@ const httpServer = createServer(async (req, res) => {
         status: 'ok',
         transport: 'streamable-http',
       });
+      return;
+    }
+
+    if (await handleFileRequest(fileTransfer, req, res)) {
+      return;
+    }
+
+    if (req.url === '/activity') {
+      if (!authorized(req)) {
+        sendJson(res, 401, { error: 'Unauthorized' });
+        return;
+      }
+      sendJson(res, 200, { busy: await kimiBusy() });
       return;
     }
 

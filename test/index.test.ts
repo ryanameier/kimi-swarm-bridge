@@ -115,8 +115,8 @@ describe('createMcpServer durable job wiring', () => {
 });
 
 describe('MCP server identity', () => {
-  it('reports plugin version 0.3.4 in the source', () => {
+  it('reports plugin version 0.4.0 in the source', () => {
     const source = readFileSync(resolve('src/index.ts'), 'utf8');
-    expect(source).toContain("version: '0.3.4'");
+    expect(source).toContain("version: '0.4.0'");
   });
 });

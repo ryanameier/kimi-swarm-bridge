@@ -167,7 +167,13 @@ describe('HTTP MCP entrypoint', () => {
 
     expect(tools.map((tool) => tool.name)).toContain('kimi_bridge_status');
     expect(tools.map((tool) => tool.name)).toContain('kimi_recent_jobs');
-    expect(tools).toHaveLength(12);
+    expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      'kimi_create_upload_links',
+      'kimi_create_download_links',
+      'kimi_list_files',
+      'kimi_file_panel',
+    ]));
+    expect(tools).toHaveLength(19);
 
     const statusResult = await first.client.callTool({
       name: 'kimi_bridge_status',
@@ -194,6 +200,13 @@ describe('HTTP MCP entrypoint', () => {
 
     await first.client.close();
 
+    const claude = makeClient(mcpUrl, token, 'claude-ai');
+    await claude.client.connect(claude.transport);
+    const claudeTools = (await claude.client.listTools()).tools.map((tool) => tool.name);
+    expect(claudeTools).toContain('kimi_create_upload_links');
+    expect(claudeTools).not.toContain('kimi_file_panel');
+    await claude.client.close();
+
     const second = makeClient(mcpUrl, token, 'http-test-second');
     await second.client.connect(second.transport);
 
@@ -201,5 +214,41 @@ describe('HTTP MCP entrypoint', () => {
     expect(second.transport.sessionId).not.toBe(firstSessionId);
 
     await second.client.close();
+
+    // Stateless mode (fronting proxy owns sessions): no initialize needed,
+    // no session id issued, client name taken from a header.
+    const rpc = async (method: string, params: unknown, clientName?: string) => {
+      const response = await fetch(mcpUrl, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'x-kimi-mcp-mode': 'stateless',
+          ...(clientName ? { 'x-kimi-client-name': clientName } : {}),
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 7, method, params }),
+      });
+      const text = await response.text();
+      const data = text.split('\n').find((line) => line.startsWith('data: '));
+      return { response, message: JSON.parse(data ? data.slice(6) : text) };
+    };
+
+    const statelessList = await rpc('tools/list', {});
+    expect(statelessList.response.status).toBe(200);
+    expect(statelessList.response.headers.get('mcp-session-id')).toBeNull();
+    expect(statelessList.message.result.tools).toHaveLength(19);
+
+    const statelessClaude = await rpc('tools/list', {}, 'claude-ai');
+    const statelessClaudeTools = statelessClaude.message.result.tools.map((tool: { name: string }) => tool.name);
+    expect(statelessClaudeTools).not.toContain('kimi_file_panel');
+
+    const statelessCall = await rpc('tools/call', { name: 'kimi_bridge_status', arguments: {} });
+    expect(JSON.parse(statelessCall.message.result.content[0].text).status).toBe('ready');
+
+    const statelessGet = await fetch(mcpUrl, {
+      headers: { authorization: `Bearer ${token}`, 'x-kimi-mcp-mode': 'stateless' },
+    });
+    expect(statelessGet.status).toBe(405);
   }, 20_000);
 });

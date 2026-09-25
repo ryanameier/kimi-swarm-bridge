@@ -1,0 +1,50 @@
+// Template. `npm run setup` writes the account-specific wrangler.deploy.jsonc used for deploys.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "kimi-swarm-bridge",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	// Keys the cached MCP handshake/tool-list snapshot to the deployed version.
+	"version_metadata": { "binding": "CF_VERSION_METADATA" },
+	"containers": [
+		{
+			"class_name": "KimiSandbox",
+			"image": "../Dockerfile",
+			"image_build_context": "..",
+			"image_vars": { "IMAGE_VARIANT": "cloudflare" },
+			"instance_type": "standard-2",
+			"max_instances": 10
+		}
+	],
+	"durable_objects": {
+		"bindings": [{ "class_name": "KimiSandbox", "name": "KIMI_SANDBOX" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
+	"r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "kimi-swarm-backups" }],
+	"vars": {
+		"ORGANIZATION_ID": "default", "SWARM_CONCURRENCY": "4", "MAX_AGENTS_CAP": "32", "DEFAULT_MAX_AGENTS": "4",
+		"AIAND_DAILY_REQUEST_LIMIT": "3000",
+		"EGRESS_MODE": "open",
+		"EGRESS_ALLOWLIST": "",
+		"BACKUP_MAX_MB": "4096"
+	},
+	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "set-by-npm-run-setup" }],
+	"secrets": {
+		"required": [
+			"AIAND_API_KEY",
+			"FIRECRAWL_API_KEY",
+			"BRIDGE_TOKEN",
+			"ACCESS_CLIENT_ID",
+			"ACCESS_CLIENT_SECRET",
+			"ACCESS_TOKEN_URL",
+			"ACCESS_AUTHORIZATION_URL",
+			"ACCESS_JWKS_URL",
+			"COOKIE_ENCRYPTION_KEY",
+			"ADMIN_TOKEN"
+		]
+	}
+}

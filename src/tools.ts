@@ -1,5 +1,6 @@
 import type { BridgeConfig } from './config.js';
 import { buildContinuationPrompt, buildDelegationPrompt } from './prompt.js';
+import { loadSwarmLimits } from './swarm-settings.js';
 import type { KimiHandoff } from './handoff.js';
 import type { KimiClient } from './kimi/client.js';
 import { waitUntilIdle, type WaitUntilIdleResult } from './kimi/wait.js';
@@ -840,6 +841,9 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         }
 
         const prompt = buildDelegationPrompt({
+          coordinator: deps.config.coordinatorName,
+          workspaceFiles: deps.config.workspaceFiles,
+          swarmLimits: loadSwarmLimits(deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1005,7 +1009,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
 
       const result = await waitUntilIdle({
         sessionId: input.sessionId,
-        timeoutMs: input.timeoutMs ?? deps.config.requestTimeoutMs,
+        timeoutMs: Math.min(input.timeoutMs ?? deps.config.requestTimeoutMs, deps.config.maxWaitMs ?? Number.POSITIVE_INFINITY),
         pollStatus: async () => ({ status: await deps.kimi.getRuntimeStatus(input.sessionId) }),
       });
       syncJobStatusFromWait(job, result.status);
@@ -1121,6 +1125,9 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       const job = requireOwnedSession(input.sessionId);
 
       const prompt = buildContinuationPrompt({
+        coordinator: deps.config.coordinatorName,
+        workspaceFiles: deps.config.workspaceFiles,
+        swarmLimits: loadSwarmLimits(deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],

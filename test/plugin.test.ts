@@ -75,8 +75,9 @@ describe('Codex plugin package', () => {
         'kimi_delegate_and_wait',
         'kimi_review_package',
         'kimi_recent_jobs',
+        'kimi_swarm_settings',
       ]));
-      expect(toolNames).toHaveLength(12);
+      expect(toolNames).toHaveLength(13);
     } finally {
       await client.close();
       rmSync(temporaryRoot, { recursive: true, force: true });
@@ -90,7 +91,7 @@ describe('Codex plugin package', () => {
     );
 
     expect(packageJson).toMatchObject({
-      version: '0.3.4',
+      version: '0.4.0',
       license: 'MIT',
       author: 'ximenchuifeng',
       repository: {
@@ -115,7 +116,7 @@ describe('Codex plugin package', () => {
     expect(existsSync(resolve('LICENSE'))).toBe(true);
 
     const bundleText = readFileSync(bundlePath, 'utf8');
-    expect(bundleText).toContain('0.3.4');
+    expect(bundleText).toContain('0.4.0');
 
     const readme = readFileSync(resolve('README.md'), 'utf8');
     const skill = readFileSync(join(pluginRoot, 'skills/kimi-delegate/SKILL.md'), 'utf8');

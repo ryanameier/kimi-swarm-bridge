@@ -128,3 +128,11 @@ describe('loadBridgeConfig', () => {
     });
   });
 });
+
+describe('KIMI_MAX_WAIT_MS', () => {
+  it('caps waits only when configured', () => {
+    expect(loadBridgeConfig({}).maxWaitMs).toBeUndefined();
+    expect(loadBridgeConfig({ KIMI_MAX_WAIT_MS: '200000' }).maxWaitMs).toBe(200000);
+    expect(loadBridgeConfig({ KIMI_MAX_WAIT_MS: 'nope' }).maxWaitMs).toBeUndefined();
+  });
+});
