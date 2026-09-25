@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The "offer Kimi for part of a request" guidance is also in the `kimi_delegate_task` tool
+  description, for clients that show tool descriptions but not MCP server instructions.
+
 ## 0.5.0 (2026-09-25)
 
 - Claude offers Kimi for independent parts of a request: when part of a request is substantial

@@ -62,3 +62,11 @@ describe('offering Kimi for parts of a request', () => {
     expect(OFFER_KIMI_INSTRUCTIONS).toContain('Do not offer for quick or tightly coupled work');
   });
 });
+
+describe('offer guidance in tool descriptions', () => {
+  it('reaches clients that show tool descriptions but not server instructions', async () => {
+    const { TOOL_METADATA } = await import('../src/tool-catalog.js');
+    expect(TOOL_METADATA.kimi_delegate_task.description).toContain('Also consider it when the user did not mention Kimi');
+    expect(TOOL_METADATA.kimi_delegate_task.description).toContain('ask first unless kimi_swarm_settings shows offerKimi auto');
+  });
+});
