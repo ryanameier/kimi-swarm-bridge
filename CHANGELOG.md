@@ -10,6 +10,15 @@
 - Kimi is told to use the fewest workers that do the task well, overriding Kimi Code's default
   guidance to maximize agents; the per-user ceiling stays an upper bound.
 - The admin self-test reports which bridge build a container runs.
+- Default model is `zai-org/glm-5.3` (deployment setting `AIAND_MODEL`, setup `KIMI_MODEL`);
+  model capabilities (for example image input) come from the ai& catalog. New deployments start
+  at 4 agents with a user-adjustable cap of 20.
+- Failed tasks report why (`failureReason`, from Kimi's turn record), for example exhausted model
+  credits.
+- Lower token use per step: only the Firecrawl tools research needs are loaded
+  (`KIMI_FIRECRAWL_TOOLS`), Kimi compacts context at a 128k window (`KIMI_CONTEXT_WINDOW`), and
+  workers keep notes and return concise summaries.
+- `docs/using-kimi-swarm.md`: a one-page guide for employees.
 
 ## 0.4.0 (2026-09-25)
 

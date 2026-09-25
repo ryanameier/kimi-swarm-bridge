@@ -7,7 +7,7 @@ This fork is built around one runtime policy:
 - inference always goes through `https://api.aiand.com/v1`
 - credentials are supplied with `AIAND_API_KEY`
 - the model is configurable with `KIMI_MODEL_NAME`
-- the tested/default model is `moonshotai/kimi-k3`
+- the default model is `zai-org/glm-5.3` (`moonshotai/kimi-k3` is also tested); users can switch models from chat
 - Kimi Code's REST API stays loopback-only
 - the externally exposed interface is MCP
 
@@ -15,7 +15,7 @@ The project began as a fork of [`ximenchuifeng/codex-kimi-bridge`](https://githu
 
 ## Organization deployment
 
-To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md).
+To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md). Share [docs/using-kimi-swarm.md](docs/using-kimi-swarm.md) with employees.
 
 ## What it provides
 
@@ -94,7 +94,7 @@ If `KIMI_MODEL_NAME` is not set, the bridge defaults to:
 moonshotai/kimi-k3
 ```
 
-Other models exposed by ai& may work, but native AgentSwarm compatibility should be verified per model. `moonshotai/kimi-k3` is the currently tested default.
+Other models exposed by ai& may work, but native AgentSwarm compatibility should be verified per model. `zai-org/glm-5.3` is the default and `moonshotai/kimi-k3` is also tested.
 
 ## Native AgentSwarm
 

@@ -23,7 +23,7 @@ FROM node:22.19-bookworm-slim AS base
 ENV NODE_ENV=production
 ENV KIMI_CODE_HOME=/data/kimi-code
 ENV KIMI_SERVER_URL=http://127.0.0.1:58627
-ENV KIMI_MODEL_NAME=moonshotai/kimi-k3
+ENV KIMI_MODEL_NAME=zai-org/glm-5.3
 ENV KIMI_MODEL_PROVIDER_TYPE=openai
 ENV KIMI_MODEL_BASE_URL=https://api.aiand.com/v1
 ENV KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4

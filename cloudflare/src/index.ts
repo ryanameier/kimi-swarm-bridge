@@ -72,6 +72,8 @@ export class KimiSandbox extends Sandbox<Env> {
 			KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: env.SWARM_CONCURRENCY || "4",
 			KIMI_MAX_AGENTS_CAP: env.MAX_AGENTS_CAP || "32",
 			KIMI_DEFAULT_MAX_AGENTS: env.DEFAULT_MAX_AGENTS || "4",
+			// ai& model for new users; each user can switch with kimi_model_settings.
+			KIMI_MODEL_NAME: env.AIAND_MODEL || "zai-org/glm-5.3",
 		};
 	}
 
@@ -161,7 +163,7 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.ensureRuntime(sandboxId, publicBaseUrl);
 		const checks: Record<string, string> = {
 			placeholderKeys: `real=$(for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < $f 2>/dev/null; done | grep -E '^(AIAND_API_KEY|KIMI_MODEL_API_KEY|FIRECRAWL_API_KEY)=' | grep -v -E '=(${AIAND_PLACEHOLDER}|${FIRECRAWL_PLACEHOLDER}|disabled)$' | sed 's/=.*/=<real value>/' | sort -u); test -z "$real" && echo placeholders-only || echo $real`,
-			aiand: `curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.aiand.com/v1/chat/completions -H "authorization: Bearer $AIAND_API_KEY" -H 'content-type: application/json' -d '{"model":"moonshotai/kimi-k3","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}'`,
+			aiand: `curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.aiand.com/v1/chat/completions -H "authorization: Bearer $AIAND_API_KEY" -H 'content-type: application/json' -d "{\\"model\\":\\"$KIMI_MODEL_NAME\\",\\"max_tokens\\":1,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"ok\\"}]}"`,
 			firecrawl: `test "$FIRECRAWL_API_KEY" = disabled && echo disabled || curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.firecrawl.dev/v2/scrape -H "authorization: Bearer $FIRECRAWL_API_KEY" -H 'content-type: application/json' -d '{"url":"https://example.com","formats":["markdown"]}'`,
 			https: `curl -s -m 30 -o /dev/null -w '%{http_code}' https://example.com`,
 			git: `git ls-remote https://github.com/cloudflare/sandbox-sdk HEAD | cut -c1-12`,

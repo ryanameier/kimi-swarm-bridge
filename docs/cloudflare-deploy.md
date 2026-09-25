@@ -16,7 +16,7 @@ Sandbox container (per employee, placeholder keys only)
    ├─ MCP bridge (this repo) + file transfer
    ├─ firecrawl-mcp (web search / scrape for workers)
    └─ workbench: python3, pypdf, reportlab, python-docx, openpyxl, pillow, poppler, git, zip
-        │ all Kimi inference → ai& (https://api.aiand.com/v1, moonshotai/kimi-k3)
+        │ all Kimi inference → ai& (https://api.aiand.com/v1; default zai-org/glm-5.3)
         │ outbound calls to ai& / Firecrawl pass through the Worker, which adds the key
 R2: workspace and Kimi-state backups (restored automatically when a container restarts)
 ```
@@ -90,6 +90,9 @@ overrides them. Run `npm run setup -- --yes`. `--rotate-internal` replaces the g
 Setup writes `wrangler.deploy.jsonc` (account-specific, git-ignored). Later deploys:
 `npm run deploy`.
 
+Give employees [using-kimi-swarm.md](using-kimi-swarm.md), a one-page guide to using Kimi Swarm
+from Claude.
+
 ## 2. Add the connector in Claude
 
 Claude → **Settings → Connectors → Add custom connector** →
@@ -104,10 +107,15 @@ share download links.
 
 ## Agent limits and ai& rate limits
 
-- **Agents per task (a ceiling).** Kimi decides how many AgentSwarm workers each task needs;
-  the ceiling only bounds it. It starts at `DEFAULT_MAX_AGENTS` (4). Employees change their own
-  ceiling from chat ("increase the Kimi agent limit to 20", via `kimi_swarm_settings`), up to
-  `MAX_AGENTS_CAP` (32; Kimi's hard maximum is 128).
+- **Models.** New users start on `AIAND_MODEL` (setup: `KIMI_MODEL`, default `zai-org/glm-5.3`).
+  Employees switch models from chat ("which models can Kimi use?", "use GLM-5.3 for the
+  workers") via `kimi_model_settings`, separately for the coordinator and the workers; the
+  worker model drives most of the cost. `KIMI_ALLOWED_MODELS` (comma-separated ids) limits the
+  choice. Task results include token usage and an estimated cost.
+- **Agents per task (a ceiling).** Kimi decides how many AgentSwarm workers each task needs and
+  is told to use the fewest that do the job well; the ceiling only bounds it. It starts at
+  `DEFAULT_MAX_AGENTS` (4). Employees change their own ceiling from chat ("raise the Kimi agent
+  limit to 8", via `kimi_swarm_settings`), up to `MAX_AGENTS_CAP` (20; Kimi's hard maximum is 128).
 - **Workers calling ai& at once (a guardrail).** `SWARM_CONCURRENCY` (4) limits how many
   workers run simultaneously per employee; extra workers wait in a rolling queue and start as
   soon as a running worker finishes. A 20-agent task at concurrency 4 still runs all 20 workers,

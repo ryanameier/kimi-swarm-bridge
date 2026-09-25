@@ -1,5 +1,6 @@
 export const AIAND_BASE_URL = 'https://api.aiand.com/v1';
-export const DEFAULT_AIAND_MODEL = 'moonshotai/kimi-k3';
+// Cost-effective default with strong agentic results; users can switch with kimi_model_settings.
+export const DEFAULT_AIAND_MODEL = 'zai-org/glm-5.3';
 
 export function applyAiandRuntimePolicy(
   env: NodeJS.ProcessEnv,

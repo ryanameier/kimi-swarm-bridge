@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readSwarmEvidence } from '../src/swarm-evidence.js';
+import { readFailureReason, readSwarmEvidence } from '../src/swarm-evidence.js';
 import { parseModelPricing } from '../src/model-pricing.js';
 
 const tmpDirs: string[] = [];
@@ -204,5 +204,18 @@ describe('readSwarmEvidence', () => {
       nativeAgentSwarmObserved: false,
       unavailableReason: 'session_wire_not_found',
     });
+  });
+
+  it('explains why the last turn failed', async () => {
+    const home = await makeHome();
+    await writeWire(home, 'session_failed', 'main', [
+      { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' },
+      { type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'failed', error: { code: 'insufficient_credits', message: 'Insufficient credits. Add credits at https://console.aiand.com to continue.' } },
+    ]);
+    expect(await readFailureReason({ kimiCodeHome: home, sessionId: 'session_failed' }))
+      .toBe('insufficient_credits: Insufficient credits. Add credits at https://console.aiand.com to continue.');
+
+    await writeWire(home, 'session_ok', 'main', [{ type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' }]);
+    expect(await readFailureReason({ kimiCodeHome: home, sessionId: 'session_ok' })).toBeUndefined();
   });
 });

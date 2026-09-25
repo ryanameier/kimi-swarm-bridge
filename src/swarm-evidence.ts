@@ -282,3 +282,32 @@ export async function readSwarmEvidence(input: ReadSwarmEvidenceInput): Promise<
     totalUsage,
   };
 }
+
+/**
+ * Why the session's most recent turn failed, from Kimi's `turn.ended` wire
+ * record (for example "Insufficient credits" from the model provider), so a
+ * failed task can be explained instead of only reported as failed.
+ */
+export async function readFailureReason(input: { kimiCodeHome?: string; sessionId: string }): Promise<string | undefined> {
+  const kimiCodeHome = input.kimiCodeHome ?? join(homedir(), '.kimi-code');
+  const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
+  if (!agentsDir) return undefined;
+  let records: JsonRecord[];
+  try {
+    records = await parseJsonLines(join(agentsDir, 'main', 'wire.jsonl'));
+  } catch {
+    return undefined;
+  }
+  const lastEnd = [...records].reverse().find((record) => record.type === 'turn.ended');
+  if (!lastEnd || lastEnd.reason !== 'failed') return undefined;
+  return describeError(lastEnd.error) ?? 'Kimi reported a failed turn without details.';
+}
+
+function describeError(error: unknown): string | undefined {
+  if (typeof error === 'string') return error.slice(0, 1000);
+  if (!isRecord(error)) return undefined;
+  const message = typeof error.message === 'string' ? error.message : undefined;
+  const code = typeof error.code === 'string' ? error.code : undefined;
+  const detail = message ?? JSON.stringify(error);
+  return (code && message ? `${code}: ${message}` : detail).slice(0, 1000);
+}

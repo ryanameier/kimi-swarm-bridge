@@ -22641,6 +22641,28 @@ async function readSwarmEvidence(input) {
     totalUsage
   };
 }
+async function readFailureReason(input) {
+  const kimiCodeHome = input.kimiCodeHome ?? join4(homedir2(), ".kimi-code");
+  const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
+  if (!agentsDir) return void 0;
+  let records;
+  try {
+    records = await parseJsonLines(join4(agentsDir, "main", "wire.jsonl"));
+  } catch {
+    return void 0;
+  }
+  const lastEnd = [...records].reverse().find((record2) => record2.type === "turn.ended");
+  if (!lastEnd || lastEnd.reason !== "failed") return void 0;
+  return describeError(lastEnd.error) ?? "Kimi reported a failed turn without details.";
+}
+function describeError(error2) {
+  if (typeof error2 === "string") return error2.slice(0, 1e3);
+  if (!isRecord(error2)) return void 0;
+  const message = typeof error2.message === "string" ? error2.message : void 0;
+  const code = typeof error2.code === "string" ? error2.code : void 0;
+  const detail = message ?? JSON.stringify(error2);
+  return (code && message ? `${code}: ${message}` : detail).slice(0, 1e3);
+}
 
 // src/model-pricing.ts
 var CACHE_MS = 60 * 60 * 1e3;
@@ -23166,6 +23188,10 @@ function createToolHandlers(deps) {
           deps.config.serverToken
         );
       }
+      if (wait.status === "failed") {
+        const failureReason = await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: delegated.sessionId });
+        if (failureReason) result.failureReason = failureReason;
+      }
       return result;
     }
     const handoff = await handlers.kimi_get_handoff({ sessionId: delegated.sessionId });
@@ -23608,8 +23634,10 @@ function createToolHandlers(deps) {
       sessionId: input.sessionId,
       prices: await modelPrices()
     });
+    const failureReason = handoff.status === "failed" ? await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: input.sessionId }) : void 0;
     const result = {
       ...handoff,
+      ...failureReason ? { failureReason } : {},
       swarmEvidence
     };
     if (job && deps.jobRegistry) {

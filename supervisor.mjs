@@ -55,6 +55,33 @@ async function registerInternetTools() {
 
 await registerInternetTools();
 
+// Tell Kimi what the configured model can do (Kimi otherwise assumes image
+// input, which text-only models such as GLM reject). Uses ai&'s catalog.
+async function detectModelCapabilities() {
+  if (process.env.KIMI_MODEL_CAPABILITIES) return;
+  let capabilities = ["thinking"];
+  try {
+    const response = await fetch(`${process.env.KIMI_MODEL_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${process.env.KIMI_MODEL_API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const entry = (await response.json()).data?.find(
+      (model) => model.id === process.env.KIMI_MODEL_NAME,
+    );
+    if (entry && Array.isArray(entry.capabilities)) {
+      capabilities = [
+        ...(entry.capabilities.includes("reasoning") ? ["thinking"] : []),
+        ...(entry.capabilities.includes("vision") ? ["image_in"] : []),
+      ];
+    }
+  } catch (error) {
+    console.error(`Model catalog unavailable; assuming text-only: ${error}`);
+  }
+  process.env.KIMI_MODEL_CAPABILITIES = capabilities.join(",") || "thinking";
+}
+
+await detectModelCapabilities();
+
 Object.assign(process.env, {
   KIMI_CODE_HOME: kimiCodeHome,
   // Kimi compacts its context at ~85% of this window. A smaller window keeps

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } from './git.js';
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
 import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry.js';
-import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
+import { readFailureReason, readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 import { getModelCatalog } from './model-pricing.js';
 import { coordinatorAlias, loadModelSettings } from './model-settings.js';
 
@@ -143,6 +143,8 @@ export interface DelegateAndWaitResult {
   changedFiles?: string[];
   reviewPackage?: ReviewPackageResult;
   diagnostics?: DelegateAndWaitDiagnostics;
+  /** Why Kimi's turn failed (for example exhausted model credits), when it did. */
+  failureReason?: string;
   dedupe?: DelegateAndWaitDedupeResult;
   baselineStored?: boolean;
   baselineStoreError?: string;
@@ -673,6 +675,10 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           deps.config.serverToken,
         );
       }
+      if (wait.status === 'failed') {
+        const failureReason = await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: delegated.sessionId });
+        if (failureReason) result.failureReason = failureReason;
+      }
       return result;
     }
     const handoff = await handlers.kimi_get_handoff({ sessionId: delegated.sessionId });
@@ -1192,8 +1198,12 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       prices: await modelPrices(),
     });
 
+    const failureReason = handoff.status === 'failed'
+      ? await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: input.sessionId })
+      : undefined;
     const result = {
       ...handoff,
+      ...(failureReason ? { failureReason } : {}),
       swarmEvidence,
     };
 
