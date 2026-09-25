@@ -1,7 +1,7 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
-import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type RouteDeps } from "./routes";
+import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type AgentLimits, type RouteDeps } from "./routes";
 import { backupName, deleteBackup, listBackups } from "./backups";
 import { AIAND_PLACEHOLDER, BRAVE_PLACEHOLDER, CREDENTIAL_HOSTS, egressMode, type ModelBudgetResult } from "./egress";
 import { BROWSER_HOST } from "./browser";
@@ -79,18 +79,30 @@ export class KimiSandbox extends Sandbox<Env> {
 	}
 
 	/** Make sure the bridge is serving; restores state and starts it on a fresh container. */
-	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void> {
+	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<AgentLimits | void> {
 		if (this.knownSandboxId !== sandboxId) {
 			await this.ctx.storage.put("sandboxId", sandboxId);
 			this.knownSandboxId = sandboxId;
 		}
 		await this.ctx.storage.delete("busySince");
 		await this.configureEgress();
-		if (await this.bridgeHealthy()) return;
+		if (await this.bridgeHealthy()) return this.agentLimits();
 		this.starting ??= this.startRuntime(sandboxId, publicBaseUrl).finally(() => {
 			this.starting = undefined;
 		});
 		await this.starting;
+		return this.agentLimits();
+	}
+
+	/** Admin override of this user's agent limits; null clears it. Applies on the next request. */
+	async setAgentLimits(limits: AgentLimits | null): Promise<AgentLimits | null> {
+		if (limits === null) await this.ctx.storage.delete("agentLimits");
+		else await this.ctx.storage.put("agentLimits", limits);
+		return (await this.agentLimits()) ?? null;
+	}
+
+	private async agentLimits(): Promise<AgentLimits | undefined> {
+		return this.ctx.storage.get<AgentLimits>("agentLimits");
 	}
 
 	/**

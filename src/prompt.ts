@@ -24,13 +24,13 @@ function depthOf(context: PromptContext): ResearchDepth {
 
 function swarmLimitText(limits: PromptContext['swarmLimits'], depth: ResearchDepth = 'standard'): string {
   if (!limits) return '';
-  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use only as many AgentSwarm workers as the task needs, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Do not use AgentSwarm for small or tightly coupled work. For independent items that each need web research, one worker per item (up to the ceiling) finishes fastest at about the same total cost; otherwise split so that no worker has much more work than the others. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
 Speed: start AgentSwarm right away unless the split is genuinely unclear. AgentSwarm items must be plain strings (one short scope description per worker). Tell each worker to:
-- batch its actions: pass several queries to one web_search call and several pages to one read_page call (each page with a specific question) instead of one per step;
+- finish in as few steps as possible: one batch of web_search queries, one or two batches of read_page calls (several pages per call, each with a specific question), then write all of its output in a single step;
 - for research depth "${depth}": ${DEPTH_TEXT[depth]};
-- never sleep or wait out rate limits (the tools retry on their own);
-- when the deliverable is a document, write its own finished section(s) to /workspace/outputs/.sections/<NN>-<topic>.md and return only a short summary.
-Then assemble the sections with one shell command (for example cat) and write only the parts that need the whole picture (summary table, recommendations) yourself; delete /workspace/outputs/.sections afterwards.
+- not inspect tool-result files, re-read its own output or re-verify, and never sleep or wait out rate limits (the tools retry on their own);
+- when the deliverable is a document, write its finished section(s) to /workspace/outputs/.sections/<NN>-<topic>.md and return only a short summary plus one summary-table row per item.
+Then finish in two steps: write the parts that need the whole picture (summary table built from the workers' rows, recommendations) in one file write, and assemble everything with one shell command that also deletes /workspace/outputs/.sections. Do not re-read or re-verify the assembled file.
 `;
 }
 

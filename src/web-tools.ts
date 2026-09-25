@@ -24,6 +24,17 @@ const DEFAULT_READER_MODEL = 'deepseek-ai/deepseek-v4-flash';
 const MAX_PAGE_CHARS = 80_000;
 const RAW_CHARS = 12_000;
 const MIN_USEFUL_TEXT = 400;
+const PAGE_TIMEOUT_MS = 40_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 export interface WebToolsEnv {
   BRAVE_API_KEY?: string;
@@ -105,7 +116,7 @@ async function fetchDirect(url: string, fetchImpl: Fetch): Promise<{ title: stri
   const response = await fetchImpl(url, {
     headers: { 'user-agent': 'Mozilla/5.0 (compatible; KimiSwarm/1.0; research)', accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' },
     redirect: 'follow',
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(15_000),
   });
   const type = response.headers.get('content-type') ?? '';
   const body = await response.text();
@@ -115,7 +126,7 @@ async function fetchDirect(url: string, fetchImpl: Fetch): Promise<{ title: stri
 
 async function fetchRendered(url: string, fetchImpl: Fetch): Promise<{ title: string; text: string } | undefined> {
   try {
-    const response = await fetchImpl(`${BROWSER_URL}?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(60_000) });
+    const response = await fetchImpl(`${BROWSER_URL}?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(25_000) });
     if (!response.ok) return undefined;
     const data = (await response.json()) as { title?: string; text?: string };
     return data.text ? { title: data.title ?? '', text: data.text } : undefined;
@@ -163,7 +174,7 @@ export async function extractWithModel(question: string, page: { title: string; 
         { role: 'user', content: `Question: ${question}\n\nURL: ${url}\nTitle: ${page.title}\n\nPage text:\n${page.text.slice(0, MAX_PAGE_CHARS)}` },
       ],
     }),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(45_000),
   });
   if (!response.ok) throw new Error(`Reader model failed: HTTP ${response.status} ${(await response.text()).slice(0, 200)}`);
   const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
@@ -233,7 +244,8 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
       if (all.length === 0) return failure(new Error('Pass url or pages.'));
       const results = await Promise.all(all.map(async (page) => {
         try {
-          return await readPage(page, env, fetchImpl);
+          // One slow page must not hold up the whole batch.
+          return await withTimeout(readPage(page, env, fetchImpl), PAGE_TIMEOUT_MS, `timed out after ${PAGE_TIMEOUT_MS / 1000}s`);
         } catch (error) {
           return `Source: ${page.url}\n[failed: ${error instanceof Error ? error.message : String(error)}]`;
         }

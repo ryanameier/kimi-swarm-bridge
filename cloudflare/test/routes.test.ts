@@ -301,4 +301,38 @@ describe("admin routes", () => {
 		const unauth = await handleAdminRoute(new Request(`${BASE}/admin/backups`), env, deps);
 		expect(unauth!.status).toBe(401);
 	});
+
+	it("sets a per-user agent cap without a restart", async () => {
+		const { deps, sandbox } = makeSandbox();
+		const post = (body: string) =>
+			handleAdminRoute(new Request(`${BASE}/admin/sandboxes/${SANDBOX_ID}/limits`, { method: "POST", headers: { authorization: `Bearer ${ADMIN_TOKEN}` }, body }), makeEnv(), deps);
+		const ok = await post(JSON.stringify({ maxAgentsCap: 12 }));
+		expect(await ok!.json()).toMatchObject({ limits: { maxAgentsCap: 12 } });
+		expect(sandbox.setAgentLimits).toHaveBeenCalledWith({ maxAgentsCap: 12 });
+		expect((await post(JSON.stringify({ maxAgentsCap: 0 })))!.status).toBe(400);
+		expect((await post("null"))!.status).toBe(200);
+		expect(sandbox.setAgentLimits).toHaveBeenLastCalledWith(null);
+		expect(sandbox.restartRuntime).not.toHaveBeenCalled();
+	});
+});
+
+describe("agent limit headers", () => {
+	it("sends the deployment cap, or a per-user override, with every MCP request", async () => {
+		const seen: Request[] = [];
+		const { deps, sandbox } = makeSandbox(async (request) => {
+			seen.push(request);
+			return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+		});
+		const env = { ...makeEnv(), MAX_AGENTS_CAP: "4", DEFAULT_MAX_AGENTS: "4" };
+		const handler = createMcpHandler(deps);
+		const { sessionId } = await initialize(handler, env);
+		const { ctx } = executionContext({ login: "alice@example.com" });
+		const call = () => handler.fetch(mcpRequest(rpc("tools/call", { name: "kimi_swarm_settings", arguments: {} }), { "mcp-session-id": sessionId }), env, ctx);
+		await call();
+		expect(seen.at(-1)?.headers.get("x-kimi-max-agents-cap")).toBe("4");
+		sandbox.ensureRuntime.mockResolvedValueOnce({ maxAgentsCap: 12 } as never);
+		await call();
+		expect(seen.at(-1)?.headers.get("x-kimi-max-agents-cap")).toBe("12");
+		expect(seen.at(-1)?.headers.get("x-kimi-default-max-agents")).toBe("4");
+	});
 });

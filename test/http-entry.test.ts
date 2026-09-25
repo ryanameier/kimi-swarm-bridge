@@ -217,7 +217,7 @@ describe('HTTP MCP entrypoint', () => {
 
     // Stateless mode (fronting proxy owns sessions): no initialize needed,
     // no session id issued, client name taken from a header.
-    const rpc = async (method: string, params: unknown, clientName?: string) => {
+    const rpc = async (method: string, params: unknown, clientName?: string, extra: Record<string, string> = {}) => {
       const response = await fetch(mcpUrl, {
         method: 'POST',
         headers: {
@@ -226,6 +226,7 @@ describe('HTTP MCP entrypoint', () => {
           accept: 'application/json, text/event-stream',
           'x-kimi-mcp-mode': 'stateless',
           ...(clientName ? { 'x-kimi-client-name': clientName } : {}),
+          ...extra,
         },
         body: JSON.stringify({ jsonrpc: '2.0', id: 7, method, params }),
       });
@@ -245,6 +246,10 @@ describe('HTTP MCP entrypoint', () => {
 
     const statelessCall = await rpc('tools/call', { name: 'kimi_bridge_status', arguments: {} });
     expect(JSON.parse(statelessCall.message.result.content[0].text).status).toBe('ready');
+
+    // Agent limits arrive with each request and apply without a restart.
+    const limits = await rpc('tools/call', { name: 'kimi_swarm_settings', arguments: {} }, 'claude-ai', { 'x-kimi-max-agents-cap': '12', 'x-kimi-default-max-agents': '6' });
+    expect(JSON.parse(limits.message.result.content[0].text)).toMatchObject({ maxAgentsCap: 12, defaultMaxAgents: 6, maxAgents: 6 });
 
     const statelessGet = await fetch(mcpUrl, {
       headers: { authorization: `Bearer ${token}`, 'x-kimi-mcp-mode': 'stateless' },
