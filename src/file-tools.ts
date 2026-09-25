@@ -17,6 +17,15 @@ import { runToolHandler } from './index.js';
 
 export const OUTPUTS_DIR = '/workspace/outputs';
 
+/** Sent to the client at initialize so the model knows when to suggest Kimi for part of a request. */
+export const OFFER_KIMI_INSTRUCTIONS = `When to offer Kimi Swarm: Kimi works in the background in the user's own workspace while you keep going, so handing it an independent part of a request can finish the whole request sooner. It has about 2 minutes of fixed overhead and cannot see this conversation.
+
+When a request (including one that does not mention Kimi) contains a substantial part that is independent of the rest and would take you several minutes (for example researching or comparing many items, reading a batch of documents, building a report, spreadsheet or other file, or a long coding task), offer to hand that part to Kimi while you work on the rest. Say in one sentence which part and why, for example: "Part 2, comparing the 20 vendors, doesn't depend on part 1. Should I hand it to Kimi Swarm so it runs while I work on part 1?" Do not offer for quick or tightly coupled work, or when the user wants the whole answer from you.
+
+The user's preference is offerKimi in kimi_swarm_settings (read it once before your first offer in a conversation): ask (default) means offer and wait for a yes; auto means hand such parts over without asking and tell the user you did; off means use Kimi only when the user asks. If the user says to always do this or to stop asking, save that with kimi_swarm_settings.
+
+When handing over a part: call kimi_delegate_task first with a self-contained brief (all the context Kimi needs, the exact deliverable and where to save it), then do your own part, then collect Kimi's result with kimi_wait_until_idle and kimi_get_handoff and combine both in your answer.`;
+
 /** Sent to the client at initialize so the model knows when and how to move files. */
 export const FILE_HANDOFF_INSTRUCTIONS = `Kimi Swarm runs in the user's own remote Linux workspace (/workspace). Kimi cannot see files in this conversation, in your code-execution environment, or on the user's device unless you transfer them.
 

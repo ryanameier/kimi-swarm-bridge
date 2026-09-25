@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-09-25)
 
+- Claude offers Kimi for independent parts of a request: when part of a request is substantial
+  and independent of the rest, Claude asks whether to hand it to Kimi so both parts run at once
+  (server instructions). Per-user preference `offerKimi` in `kimi_swarm_settings`: `ask`
+  (default), `auto` or `off`, changeable from chat.
+- Stalled ai& model calls are cut off: no response headers within 60s, or no data for 90s in a
+  streaming response, errors the call so Kimi retries it instead of a worker hanging (seen once:
+  a 15-worker swarm stuck on one worker for over 4 minutes). Logged as `outcome` in timing events.
+- Prompt: independent research items get one worker each when they fit under the ceiling.
 - Organization-wide ai& concurrency limit: every employee's model calls pass through one
   `AiandGate` Durable Object that keeps requests in flight under `AIAND_CONCURRENCY_LIMIT`
   (setup `KIMI_AIAND_CONCURRENCY`, default 100 = ai&'s starting limit, 0 = off). Extra requests

@@ -22337,10 +22337,30 @@ function saveMaxAgents(stateDir, requested, env = process.env) {
   }
   const { maxAgentsCap } = loadSwarmLimits(stateDir, env);
   const maxAgents = Math.min(requested, maxAgentsCap);
-  mkdirSync2(stateDir, { recursive: true });
-  writeFileSync(swarmSettingsPath(stateDir), `${JSON.stringify({ maxAgents }, null, 2)}
-`);
+  writeSettings(stateDir, { maxAgents });
   return { ...loadSwarmLimits(stateDir, env), requested, clamped: maxAgents !== requested };
+}
+var OFFER_MODES = ["ask", "auto", "off"];
+function readSettings(stateDir) {
+  try {
+    const parsed = JSON.parse(readFileSync2(swarmSettingsPath(stateDir), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function writeSettings(stateDir, update) {
+  mkdirSync2(stateDir, { recursive: true });
+  writeFileSync(swarmSettingsPath(stateDir), `${JSON.stringify({ ...readSettings(stateDir), ...update }, null, 2)}
+`);
+}
+function loadOfferMode(stateDir) {
+  const saved = readSettings(stateDir).offerKimi;
+  return OFFER_MODES.includes(saved) ? saved : "ask";
+}
+function saveOfferMode(stateDir, mode) {
+  writeSettings(stateDir, { offerKimi: mode });
+  return loadOfferMode(stateDir);
 }
 
 // src/kimi/wait.ts
@@ -23984,6 +24004,13 @@ function registerFilePanel(server, config2) {
 
 // src/file-tools.ts
 var OUTPUTS_DIR = "/workspace/outputs";
+var OFFER_KIMI_INSTRUCTIONS = `When to offer Kimi Swarm: Kimi works in the background in the user's own workspace while you keep going, so handing it an independent part of a request can finish the whole request sooner. It has about 2 minutes of fixed overhead and cannot see this conversation.
+
+When a request (including one that does not mention Kimi) contains a substantial part that is independent of the rest and would take you several minutes (for example researching or comparing many items, reading a batch of documents, building a report, spreadsheet or other file, or a long coding task), offer to hand that part to Kimi while you work on the rest. Say in one sentence which part and why, for example: "Part 2, comparing the 20 vendors, doesn't depend on part 1. Should I hand it to Kimi Swarm so it runs while I work on part 1?" Do not offer for quick or tightly coupled work, or when the user wants the whole answer from you.
+
+The user's preference is offerKimi in kimi_swarm_settings (read it once before your first offer in a conversation): ask (default) means offer and wait for a yes; auto means hand such parts over without asking and tell the user you did; off means use Kimi only when the user asks. If the user says to always do this or to stop asking, save that with kimi_swarm_settings.
+
+When handing over a part: call kimi_delegate_task first with a self-contained brief (all the context Kimi needs, the exact deliverable and where to save it), then do your own part, then collect Kimi's result with kimi_wait_until_idle and kimi_get_handoff and combine both in your answer.`;
 var FILE_HANDOFF_INSTRUCTIONS = `Kimi Swarm runs in the user's own remote Linux workspace (/workspace). Kimi cannot see files in this conversation, in your code-execution environment, or on the user's device unless you transfer them.
 
 Files in: when the user's request involves files they attached or uploaded (for example under /mnt/user-data/uploads) or files you created, transfer them before delegating. Compute each file's SHA-256, call kimi_create_upload_links once with all of them, then upload each file's exact bytes from code execution or a shell, e.g. curl --fail -X PUT --data-binary @<file> '<uploadUrl>'. Reference the returned /workspace/inputs paths in the Kimi task. Never paste file contents into tool arguments.
@@ -24108,20 +24135,23 @@ function registerSwarmSettingsTool(server, stateDir) {
   server.registerTool(
     "kimi_swarm_settings",
     {
-      title: "Kimi Swarm Agent Limits",
-      description: 'Show or change how many AgentSwarm workers Kimi may use per task. maxAgents is a ceiling: Kimi still decides how many workers each task needs and uses fewer for small tasks. Call with maxAgents when the user asks to raise or lower the agent limit (for example "increase the limit to 20"); call with no arguments to report the current settings. Values above the deployment cap are reduced to the cap. The response also reports concurrency, the number of workers that run at the same time (set by the deployment admin); extra workers queue, which keeps simultaneous ai& requests bounded, and Kimi backs off automatically if ai& rate-limits.',
+      title: "Kimi Swarm Settings",
+      description: `Show or change how many AgentSwarm workers Kimi may use per task. maxAgents is a ceiling: Kimi still decides how many workers each task needs and uses fewer for small tasks. Call with maxAgents when the user asks to raise or lower the agent limit (for example "increase the limit to 20"); call with no arguments to report the current settings. Values above the deployment cap are reduced to the cap. The response also reports concurrency, the number of workers that run at the same time (set by the deployment admin); extra workers queue, which keeps simultaneous ai& requests bounded, and Kimi backs off automatically if ai& rate-limits. offerKimi is the user's preference for Kimi taking independent parts of requests they did not send to Kimi: ask (default: offer and wait for a yes), auto (hand them over and say so) or off (only when the user asks for Kimi); read it before your first offer in a conversation, and save it when the user says to always do it or to stop asking.`,
       inputSchema: {
-        maxAgents: external_exports.number().int().min(1).optional().describe("New ceiling on workers per task. Omit to only read the current settings.")
+        maxAgents: external_exports.number().int().min(1).optional().describe("New ceiling on workers per task. Omit to only read the current settings."),
+        offerKimi: external_exports.enum(OFFER_MODES).optional().describe("New preference for offering Kimi on parts of requests: ask, auto or off. Omit to keep it.")
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
     },
     async (input) => runToolHandler(async () => {
+      const offerKimi = input.offerKimi === void 0 ? loadOfferMode(stateDir) : saveOfferMode(stateDir, input.offerKimi);
       if (input.maxAgents === void 0) {
-        return { ...loadSwarmLimits(stateDir), note: "maxAgents is a ceiling; Kimi decides the actual number per task." };
+        return { ...loadSwarmLimits(stateDir), offerKimi, note: "maxAgents is a ceiling; Kimi decides the actual number per task." };
       }
       const result = saveMaxAgents(stateDir, input.maxAgents);
       return {
         ...result,
+        offerKimi,
         note: result.clamped ? `Requested ${result.requested} exceeds this deployment's cap; the ceiling is now ${result.maxAgents}.` : `Kimi may now use up to ${result.maxAgents} workers per task (it decides how many are needed); ${result.concurrency} run at a time.`
       };
     })
@@ -24545,8 +24575,10 @@ function createMcpServer(options = {}) {
     jobOwner
   });
   const server = new McpServer(
-    { name: "kimi-swarm-bridge", version: "0.4.0" },
-    options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : void 0
+    { name: "kimi-swarm-bridge", version: "0.5.0" },
+    { instructions: options.fileTransfer ? `${OFFER_KIMI_INSTRUCTIONS}
+
+${FILE_HANDOFF_INSTRUCTIONS}` : OFFER_KIMI_INSTRUCTIONS }
   );
   server.registerTool(
     "kimi_delegate_task",

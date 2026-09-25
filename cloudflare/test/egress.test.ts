@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	AIAND_PLACEHOLDER,
+	fetchWithFirstByteTimeout,
+	whenBodyDone,
 	egressMode,
 	handleEgress,
 	hostMatches,
@@ -215,6 +217,7 @@ describe("organization-wide ai& concurrency gate", () => {
 	});
 
 	it("releases the slot when the upstream request fails", async () => {
+		vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.stubGlobal("fetch", async () => {
 			throw new Error("network down");
 		});
@@ -230,5 +233,36 @@ describe("organization-wide ai& concurrency gate", () => {
 		await handleEgress(new Request("https://api.aiand.com/v1/models"), env, props, direct);
 		await handleEgress(new Request("https://api.search.brave.com/res/v1/web/search?q=x"), env, props, direct);
 		expect(gate.acquire).not.toHaveBeenCalled();
+	});
+});
+
+describe("model request timeouts", () => {
+	it("cuts off a response that goes silent and reports it as stalled", async () => {
+		let push!: ReadableStreamDefaultController<Uint8Array>;
+		const body = new ReadableStream<Uint8Array>({ start: (c) => { push = c; } });
+		const outcomes: string[] = [];
+		const kept: Promise<unknown>[] = [];
+		const wrapped = whenBodyDone(new Response(body), (o) => { outcomes.push(o); }, (p) => kept.push(p), 20);
+		push.enqueue(new TextEncoder().encode("data: 1\n\n"));
+		const reader = wrapped.body!.getReader();
+		expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: 1\n\n");
+		await expect(reader.read()).rejects.toThrow("stalled");
+		await Promise.all(kept);
+		expect(outcomes).toEqual(["stalled"]);
+	});
+
+	it("passes a complete response through untouched", async () => {
+		const outcomes: string[] = [];
+		const kept: Promise<unknown>[] = [];
+		const wrapped = whenBodyDone(new Response("full body"), (o) => { outcomes.push(o); }, (p) => kept.push(p), 1_000);
+		expect(await wrapped.text()).toBe("full body");
+		await Promise.all(kept);
+		expect(outcomes).toEqual(["complete"]);
+	});
+
+	it("aborts a request that gets no response headers in time", async () => {
+		const send = (request: Request) =>
+			new Promise<Response>((_, reject) => request.signal.addEventListener("abort", () => reject(request.signal.reason)));
+		await expect(fetchWithFirstByteTimeout(new Request("https://api.aiand.com/v1/chat/completions", { method: "POST", body: "{}" }), 20, send)).rejects.toThrow("no response within");
 	});
 });

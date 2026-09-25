@@ -65,7 +65,39 @@ export function saveMaxAgents(
   }
   const { maxAgentsCap } = loadSwarmLimits(stateDir, env);
   const maxAgents = Math.min(requested, maxAgentsCap);
-  mkdirSync(stateDir, { recursive: true });
-  writeFileSync(swarmSettingsPath(stateDir), `${JSON.stringify({ maxAgents }, null, 2)}\n`);
+  writeSettings(stateDir, { maxAgents });
   return { ...loadSwarmLimits(stateDir, env), requested, clamped: maxAgents !== requested };
+}
+
+/**
+ * Whether Claude offers Kimi for independent parts of a request the user did not
+ * send to Kimi: 'ask' (offer and wait for a yes, the default), 'auto' (delegate and
+ * say so) or 'off' (only when the user asks for Kimi).
+ */
+export type OfferMode = 'ask' | 'auto' | 'off';
+export const OFFER_MODES = ['ask', 'auto', 'off'] as const;
+
+function readSettings(stateDir: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(readFileSync(swarmSettingsPath(stateDir), 'utf8')) as unknown;
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Merges into the saved settings so each preference keeps the others. */
+function writeSettings(stateDir: string, update: Record<string, unknown>): void {
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(swarmSettingsPath(stateDir), `${JSON.stringify({ ...readSettings(stateDir), ...update }, null, 2)}\n`);
+}
+
+export function loadOfferMode(stateDir: string): OfferMode {
+  const saved = readSettings(stateDir).offerKimi;
+  return (OFFER_MODES as readonly unknown[]).includes(saved) ? (saved as OfferMode) : 'ask';
+}
+
+export function saveOfferMode(stateDir: string, mode: OfferMode): OfferMode {
+  writeSettings(stateDir, { offerKimi: mode });
+  return loadOfferMode(stateDir);
 }
