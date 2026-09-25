@@ -102,11 +102,19 @@ Give employees `cloudflare/employee-guide.<worker-name>.md`, which setup writes 
 one-page [using-kimi-swarm.md](using-kimi-swarm.md) guide with your connector URL and domain
 filled in.
 
-Optional, recommended: share the Kimi Swarm skill (`skills/kimi-swarm/`, packaged as
-`kimi-swarm.zip` on each GitHub release). Claude apps that load connector tools on demand (the
-desktop app, Claude Code) don't show the connector's own guidance to the model, so without the
-skill Claude only uses Kimi when asked. With it, Claude offers Kimi for big, independent parts of
-a request. Build the zip with `cd skills && zip -r kimi-swarm.zip kimi-swarm`.
+Recommended: give everyone the Kimi Swarm skill (`skills/kimi-swarm/`, packaged as
+`kimi-swarm.zip` on each GitHub release; build it with `cd skills && zip -r kimi-swarm.zip
+kimi-swarm`). Claude apps that load connector tools on demand (the desktop app, Claude Code) don't
+show the connector's own guidance to the model, so without the skill Claude only uses Kimi when
+asked. With it, Claude offers Kimi for big, independent parts of a request.
+
+- Team and Enterprise: an organization owner uploads it once under **Organization settings →
+  Plugins & skills** (on the **Policy** tab, **Skills** and **Code execution and file creation**
+  must be on). It is enabled for every employee automatically; each can turn it off for
+  themselves. See [Provision and manage skills for your organization](https://support.claude.com/en/articles/13119606-provision-and-manage-skills-for-your-organization).
+- Individual plans: each user uploads `kimi-swarm.zip` themselves (see the employee guide).
+- Claude Code: org-provisioned skills may not reach Claude Code; developers can copy the
+  `kimi-swarm` folder into `~/.claude/skills/`.
 
 ## 2. Add the connector in Claude
 

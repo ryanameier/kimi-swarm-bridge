@@ -17,7 +17,7 @@ chat.
 
 That's it. Nothing else is required.
 
-**Optional: have Claude suggest Kimi on its own.** Install the Kimi Swarm skill once: download
+**Optional: have Claude suggest Kimi on its own.** If your organization already provides the Kimi Swarm skill, you have it. Otherwise install it once: download
 `kimi-swarm.zip` (your admin shares it, or get it from the project's GitHub release page) and upload it under
 **Customize → Skills** in Claude. With it, Claude offers to hand big, independent parts of your
 requests to Kimi ("Should I hand the 20-vendor comparison to Kimi Swarm so it runs while I write
