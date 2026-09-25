@@ -138,7 +138,7 @@ For a swarm task it:
 5. lets Kimi invoke its native `AgentSwarm` tool
 6. waits for the coordinator to synthesize worker results
 
-The Docker image defaults to 4 concurrent workers (`KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4`). The Cloudflare edition sets it with `SWARM_CONCURRENCY` and lets Kimi choose how many agents to use, up to a cap an admin can change live.
+The Docker image defaults to 4 concurrent workers (`KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4`). The Cloudflare edition defaults to 20 (`SWARM_CONCURRENCY`) and lets Kimi choose how many agents to use, up to a ceiling of 20 that an admin can change live.
 
 ## Docker
 

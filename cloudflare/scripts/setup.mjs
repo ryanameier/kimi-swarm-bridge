@@ -10,12 +10,12 @@
 //   ACCESS_TEAM (team name or <team>.cloudflareaccess.com),
 //   ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, KIMI_WORKER_NAME,
 //   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp),
-//   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 4),
+//   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 20),
 //   KIMI_MAX_AGENTS_CAP (highest agent ceiling users may set, default 20),
 //   KIMI_MODEL (default ai& model, default zai-org/glm-5.3; users can switch from chat),
-//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 4),
+//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 20; Kimi uses fewer when a task needs fewer),
 //   KIMI_DAILY_REQUEST_LIMIT (ai& model requests per employee per day, 0 = unlimited, default 3000),
-//   KIMI_EGRESS_MODE (open | log | allowlist, default open), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
+//   KIMI_EGRESS_MODE (open | log | allowlist, default log), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
 // Flags: --dry-run, --rotate-internal (new BRIDGE/COOKIE/ADMIN secrets), --yes (no prompts).
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -207,12 +207,12 @@ async function main() {
   const pick = (name) => previousVars[name] ?? config.vars?.[name];
   config.vars = {
     ...config.vars,
-    SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 4),
+    SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 20),
     MAX_AGENTS_CAP: intVar('KIMI_MAX_AGENTS_CAP', pick('MAX_AGENTS_CAP') ?? 20),
     AIAND_MODEL: process.env.KIMI_MODEL?.trim() || pick('AIAND_MODEL') || 'zai-org/glm-5.3',
-    DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 4),
+    DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 20),
     AIAND_DAILY_REQUEST_LIMIT: countVar('KIMI_DAILY_REQUEST_LIMIT', pick('AIAND_DAILY_REQUEST_LIMIT') ?? 3000),
-    EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'open',
+    EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'log',
     EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
   };
   if (!['open', 'log', 'allowlist'].includes(config.vars.EGRESS_MODE)) fail('KIMI_EGRESS_MODE must be open, log or allowlist.');
@@ -365,6 +365,15 @@ async function main() {
      "Package managers only", then add ${bold(`*.${subdomain}.workers.dev`)} under Additional allowed domains.
   3. Each employee clicks Connect and signs in through Access.
   Guide: docs/cloudflare-deploy.md`);
+
+  // Employee guide with this deployment's details filled in, ready to send.
+  if (!DRY_RUN) {
+    const guide = readFileSync(new URL('../../docs/using-kimi-swarm.md', import.meta.url), 'utf8');
+    const header = `> **Your Kimi Swarm details**\n> - Connector URL (your admin adds it): ${origin}/mcp\n> - Domain to allow (only for personal Claude Pro/Max accounts, step 3 below): \`*.${subdomain}.workers.dev\`\n\n`;
+    const guidePath = new URL(`../employee-guide.${workerName}.md`, import.meta.url);
+    writeFileSync(guidePath, guide.replace(/\n\n/, `\n\n${header}`));
+    console.log(`  Employee guide with these details filled in: ${bold(`cloudflare/employee-guide.${workerName}.md`)}`);
+  }
 
   if (adminToken && !DRY_RUN) {
     console.log(`

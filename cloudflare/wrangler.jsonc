@@ -28,9 +28,9 @@
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
 	"r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "kimi-swarm-backups" }],
 	"vars": {
-		"ORGANIZATION_ID": "default", "AIAND_MODEL": "zai-org/glm-5.3", "SWARM_CONCURRENCY": "4", "MAX_AGENTS_CAP": "20", "DEFAULT_MAX_AGENTS": "4",
+		"ORGANIZATION_ID": "default", "AIAND_MODEL": "zai-org/glm-5.3", "SWARM_CONCURRENCY": "20", "MAX_AGENTS_CAP": "20", "DEFAULT_MAX_AGENTS": "20",
 		"AIAND_DAILY_REQUEST_LIMIT": "3000",
-		"EGRESS_MODE": "open",
+		"EGRESS_MODE": "log",
 		"EGRESS_ALLOWLIST": "",
 		"BACKUP_MAX_MB": "4096"
 	},

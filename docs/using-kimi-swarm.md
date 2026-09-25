@@ -10,21 +10,27 @@ chat.
 1. In Claude, open **Settings → Connectors** and click **Connect** next to **Kimi Swarm**. (If you
    don't see it, ask your Kimi Swarm admin to add you.)
 2. Sign in with your work account when asked.
+3. Only if you use your own Claude Pro or Max account (not a company Team/Enterprise plan): open
+   **Settings → Capabilities → Allow network egress**, choose **Package managers only**, and add
+   the domain your admin gave you under *Additional allowed domains*. This lets Claude hand your
+   attachments to Kimi. On company plans your admin has already done this.
 
 That's it. Nothing to install.
 
 ## Ask for work
 
-Just ask Claude, and mention Kimi Swarm when you want the team to do it:
+Say "Kimi Swarm" in your request and Claude hands the job over. Copy one of these to try it:
 
 - "Use Kimi Swarm to research the 10 biggest competitors of Acme and give me a comparison table
   with sources."
 - "Have Kimi Swarm read these three PDFs and write a one-page summary of the differences." (attach
   the files)
 - "Ask Kimi Swarm to turn this spreadsheet into a report with charts, as a PDF."
+- "Use Kimi Swarm to compare pricing and limits for these 20 tools and flag anything missing."
 
-Longer jobs run in the background. Claude tells you when it has started and checks on progress;
-you can keep chatting or come back later and ask "is the Kimi Swarm task done?".
+Kimi decides how many workers a job needs. Larger jobs take a few minutes and run in the
+background: Claude checks on them for you, so you can keep chatting or come back later and ask
+"is the Kimi Swarm task done?".
 
 ## Files
 
@@ -38,7 +44,7 @@ you can keep chatting or come back later and ask "is the Kimi Swarm task done?".
 
 | Ask Claude | What it does |
 |---|---|
-| "Show my Kimi Swarm agent limit" / "raise my Kimi agent limit to 8" | The most workers Kimi may use on one task. It is a ceiling: Kimi uses fewer when a task doesn't need them. |
+| "Show my Kimi Swarm agent limit" / "lower my Kimi agent limit to 8" | The most workers Kimi may use on one task. It is a ceiling: Kimi uses fewer when a task doesn't need them. |
 | "Which models can Kimi Swarm use?" | Lists the available AI models with their prices. |
 | "Switch Kimi Swarm to GLM-5.3" / "use a cheaper model for the Kimi workers" | Changes the model for your future tasks. |
 
@@ -47,8 +53,8 @@ Your admin sets the upper limits.
 ## Good to know
 
 - **Cost:** every task uses paid AI capacity. More workers and bigger jobs cost more; Claude shows
-  the token usage and estimated cost when a task finishes. A typical 20-source research report
-  costs a few dollars.
+  the token usage and estimated cost when a task finishes. A 30-item research brief usually costs
+  $1–3.
 - **If a task fails,** Claude tells you why (for example "the AI account is out of credits"). Pass
   that message to your admin if it's not something you can fix.
 - **Privacy:** your files and results stay in your own workspace; other employees cannot see them.

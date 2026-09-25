@@ -43,7 +43,9 @@ then $5 per 1,000 searches). Page reading and JavaScript rendering use your Clou
 - Cloudflare account with **Workers Paid** ($5/month; required for Containers), **R2** enabled,
   **Zero Trust** (Free plan covers 50 users), and a workers.dev subdomain (open Workers & Pages
   once to create it).
-- ai& API key. Brave Search API key (https://brave.com/search/api/; optional, but without it Kimi
+- ai& API key, with credits added before the first test: a new ai& organization starts on an
+  evaluation tier and moves up after its first payment, and an empty balance makes every task
+  fail. Brave Search API key (https://brave.com/search/api/; optional, but without it Kimi
   cannot search the web).
 - Node 22, Docker (to build the container image), and `npx wrangler login`.
 
@@ -96,8 +98,9 @@ Setup writes `wrangler.deploy.jsonc` (account-specific, git-ignored). Later depl
 storage and backup bucket; add each deployment's `/callback` URL to the Access application's
 redirect URLs.
 
-Give employees [using-kimi-swarm.md](using-kimi-swarm.md), a one-page guide to using Kimi Swarm
-from Claude.
+Give employees `cloudflare/employee-guide.<worker-name>.md`, which setup writes at the end: the
+one-page [using-kimi-swarm.md](using-kimi-swarm.md) guide with your connector URL and domain
+filled in.
 
 ## 2. Add the connector in Claude
 
@@ -120,16 +123,19 @@ share download links.
   choice. Task results include token usage and an estimated cost.
 - **Agents per task (a ceiling).** Kimi decides how many AgentSwarm workers each task needs and
   is told to use the fewest that do the job well; the ceiling only bounds it. It starts at
-  `DEFAULT_MAX_AGENTS` (4). Employees change their own ceiling from chat ("raise the Kimi agent
+  `DEFAULT_MAX_AGENTS` (20). Employees change their own ceiling from chat ("raise the Kimi agent
   limit to 8", via `kimi_swarm_settings`), up to `MAX_AGENTS_CAP` (20; Kimi's hard maximum is 128).
-- **Workers calling ai& at once (a guardrail).** `SWARM_CONCURRENCY` (4) limits how many
+- **Workers calling ai& at once (a guardrail).** `SWARM_CONCURRENCY` (20) limits how many
   workers run simultaneously per employee; extra workers wait in a rolling queue and start as
-  soon as a running worker finishes. A 20-agent task at concurrency 4 still runs all 20 workers,
-  never more than 4 at a time, so simultaneous ai& requests stay bounded however high the
-  ceiling is. Each employee's container has its own limit.
+  soon as a running worker finishes. Keep it at least as high as the ceiling, or a higher
+  ceiling adds workers without adding speed. It is read when a container starts. Each
+  employee's container has its own limit.
 - **Rate limits.** ai& reports `X-RateLimit-Limit` (100 at the time of writing). Kimi starts
   workers in batches, retries HTTP 429 with exponential backoff, and temporarily lowers its
-  concurrency when rate-limited. Size `SWARM_CONCURRENCY` × active employees to your ai& limit.
+  concurrency when rate-limited. The limit is per ai& organization and shared by all its keys:
+  a 15-agent research task made about 40 requests a minute, so two or three large swarms at the
+  same time already reach it. Lower `SWARM_CONCURRENCY` or ask ai& for a higher limit if many
+  employees run large swarms together.
 - **Daily budget per employee.** `AIAND_DAILY_REQUEST_LIMIT` (3000) caps ai& model requests
   per employee per UTC day; `0` means unlimited. The Worker counts every model call on its way
   out; over the limit, Kimi gets a quota error and reports it instead of retrying.
@@ -145,8 +151,8 @@ packages. `EGRESS_MODE` (setup: `KIMI_EGRESS_MODE`) chooses the policy:
 
 | Mode | Behaviour |
 |---|---|
-| `open` (default) | Everything allowed; only ai& and Brave Search traffic goes through the Worker. |
-| `log` | Everything allowed; every outbound HTTP(S) request is logged (host, method, sandbox) to Workers Logs as `{"event":"egress",…}`. |
+| `open` | Everything allowed; only ai& and Brave Search traffic goes through the Worker. |
+| `log` (default) | Everything allowed; every outbound HTTP(S) request is logged (host, method, sandbox) to Workers Logs as `{"event":"egress",…}`. |
 | `allowlist` | Only hosts matching `EGRESS_ALLOWLIST` (comma-separated, `*` globs, e.g. `*.github.com,pypi.org,files.pythonhosted.org,registry.npmjs.org`) plus ai& and Brave Search; others get HTTP 403. |
 
 In `log` and `allowlist` modes HTTPS is inspected with a Cloudflare-issued certificate that

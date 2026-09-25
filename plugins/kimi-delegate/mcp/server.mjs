@@ -22218,11 +22218,15 @@ var DEPTH_TEXT = {
 function depthOf(context) {
   return context.depth ?? "standard";
 }
+var WORKER_STEP_BUDGET = { quick: 5, standard: 8, deep: 14 };
 function swarmLimitText(limits, depth = "standard") {
   if (!limits) return "";
   return `Worker count: use only as many AgentSwarm workers as the task needs, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Do not use AgentSwarm for small or tightly coupled work. For independent items that each need web research, one worker per item (up to the ceiling) finishes fastest at about the same total cost; otherwise split so that no worker has much more work than the others. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
-Speed: start AgentSwarm right away unless the split is genuinely unclear. AgentSwarm items must be plain strings (one short scope description per worker). Tell each worker to:
+Speed: start AgentSwarm right away unless the split is genuinely unclear. Call it exactly like this, with no other fields (a different shape is rejected and costs a retry):
+{"description": "<short summary>", "prompt_template": "<shared instructions> Your scope: {{item}}", "items": ["<scope 1>", "<scope 2>"]}
+prompt_template must contain {{item}} once; items are plain strings, at least 2, each different. Put the shared instructions in prompt_template, not in the items. Tell each worker to:
 - finish in as few steps as possible: one batch of web_search queries, one or two batches of read_page calls (several pages per call, each with a specific question), then write all of its output in a single step;
+- stop after about ${WORKER_STEP_BUDGET[depth]} tool calls: write what it has, mark anything still missing as "not found", and finish (the slowest worker decides when the whole swarm is done);
 - for research depth "${depth}": ${DEPTH_TEXT[depth]};
 - not inspect tool-result files, re-read its own output or re-verify, and never sleep or wait out rate limits (the tools retry on their own);
 - when the deliverable is a document, write its finished section(s) to /workspace/outputs/.sections/<NN>-<topic>.md and return only a short summary plus one summary-table row per item.

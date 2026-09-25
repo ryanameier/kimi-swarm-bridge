@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { braveSearch, formatResults, getPageText, htmlToText, readPage } from '../src/web-tools.js';
+import { braveSearch, formatResults, getPageText, htmlToText, readPage, settleWithGrace } from '../src/web-tools.js';
 
 const longText = 'Pricing details. '.repeat(60);
 const html = `<html><head><title>Fly Pricing &amp; Plans</title><script>var x=1</script><style>.a{}</style></head>
@@ -100,5 +100,24 @@ describe('batched tools', () => {
     expect(readText.split('---')).toHaveLength(2);
     expect(readText).toContain('Source: https://b.example');
     await client.close();
+  });
+});
+
+describe('settleWithGrace', () => {
+  const after = (ms: number, value: string) => () => new Promise<string>((resolve) => setTimeout(() => resolve(value), ms));
+
+  it('returns every result when the batch finishes together', async () => {
+    await expect(settleWithGrace([after(5, 'a'), after(10, 'b')], 1_000, () => 'late')).resolves.toEqual(['a', 'b']);
+  });
+
+  it('stops waiting for a straggler once half the batch is done and the grace period passes', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = settleWithGrace([after(10, 'a'), after(20, 'b'), after(60_000, 'slow')], 100, (i) => `late ${i}`);
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(pending).resolves.toEqual(['a', 'b', 'late 2']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

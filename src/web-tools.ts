@@ -24,7 +24,9 @@ const DEFAULT_READER_MODEL = 'deepseek-ai/deepseek-v4-flash';
 const MAX_PAGE_CHARS = 80_000;
 const RAW_CHARS = 12_000;
 const MIN_USEFUL_TEXT = 400;
-const PAGE_TIMEOUT_MS = 40_000;
+const PAGE_TIMEOUT_MS = 30_000;
+/** Once half a batch is done, wait at most this long for the rest. */
+const BATCH_GRACE_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -34,6 +36,35 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
       timer = setTimeout(() => reject(new Error(message)), ms);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Runs tasks in parallel. Once half have finished, the rest get `graceMs` more;
+ * any still running then resolve to `late(index)` so one slow page cannot hold up the batch.
+ */
+export function settleWithGrace(tasks: Array<() => Promise<string>>, graceMs: number, late: (index: number) => string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const results: Array<string | undefined> = Array.from({ length: tasks.length }, () => undefined);
+    let done = 0;
+    let finished = false;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve(results.map((value, index) => value ?? late(index)));
+    };
+    const half = Math.ceil(tasks.length / 2);
+    tasks.forEach((task, index) => {
+      task().then((value) => {
+        if (finished) return;
+        results[index] = value;
+        done += 1;
+        if (done === tasks.length) finish();
+        else if (done === half && tasks.length > 1) timer = setTimeout(finish, graceMs);
+      });
+    });
+  });
 }
 
 export interface WebToolsEnv {
@@ -126,7 +157,7 @@ async function fetchDirect(url: string, fetchImpl: Fetch): Promise<{ title: stri
 
 async function fetchRendered(url: string, fetchImpl: Fetch): Promise<{ title: string; text: string } | undefined> {
   try {
-    const response = await fetchImpl(`${BROWSER_URL}?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(25_000) });
+    const response = await fetchImpl(`${BROWSER_URL}?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) return undefined;
     const data = (await response.json()) as { title?: string; text?: string };
     return data.text ? { title: data.title ?? '', text: data.text } : undefined;
@@ -174,7 +205,7 @@ export async function extractWithModel(question: string, page: { title: string; 
         { role: 'user', content: `Question: ${question}\n\nURL: ${url}\nTitle: ${page.title}\n\nPage text:\n${page.text.slice(0, MAX_PAGE_CHARS)}` },
       ],
     }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`Reader model failed: HTTP ${response.status} ${(await response.text()).slice(0, 200)}`);
   const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
@@ -242,14 +273,18 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
     async ({ pages, url, question }) => {
       const all = [...(pages ?? []), ...(url ? [{ url, question }] : [])];
       if (all.length === 0) return failure(new Error('Pass url or pages.'));
-      const results = await Promise.all(all.map(async (page) => {
-        try {
-          // One slow page must not hold up the whole batch.
-          return await withTimeout(readPage(page, env, fetchImpl), PAGE_TIMEOUT_MS, `timed out after ${PAGE_TIMEOUT_MS / 1000}s`);
-        } catch (error) {
-          return `Source: ${page.url}\n[failed: ${error instanceof Error ? error.message : String(error)}]`;
-        }
-      }));
+      // One slow page must not hold up the whole batch.
+      const results = await settleWithGrace(
+        all.map((page) => async () => {
+          try {
+            return await withTimeout(readPage(page, env, fetchImpl), PAGE_TIMEOUT_MS, `timed out after ${PAGE_TIMEOUT_MS / 1000}s`);
+          } catch (error) {
+            return `Source: ${page.url}\n[failed: ${error instanceof Error ? error.message : String(error)}]`;
+          }
+        }),
+        BATCH_GRACE_MS,
+        (index) => `Source: ${all[index]!.url}\n[skipped: still loading ${BATCH_GRACE_MS / 1000}s after the rest of the batch finished; read it on its own if it matters]`,
+      );
       return text(results.join('\n\n---\n\n'));
     },
   );
