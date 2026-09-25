@@ -1,6 +1,6 @@
 ---
 name: kimi-swarm
-description: Hand independent, substantial parts of a request to Kimi Swarm (the Kimi Swarm connector) so they run in the background while you work on the rest. Use when a request, even one that never mentions Kimi, contains a part that would take you several minutes and does not depend on the rest, such as researching or comparing many items (products, vendors, companies, sources), reading or summarizing a batch of documents, building a report, spreadsheet or other file, or a long coding task. Also use when the user asks for Kimi or Kimi Swarm directly.
+description: Use this skill BEFORE you start researching whenever a request involves comparing, researching or collecting information on many items (roughly 8 or more products, tools, vendors, companies, models or sources), reading or summarizing many documents, building a report, spreadsheet or other file, or any other part that would take you several minutes. Use it even when the user does not mention Kimi and even though you could do the work yourself with web search: it decides whether to offer the Kimi Swarm connector, which runs that part in the background in parallel while you do the rest, and how to hand it over. Also use it whenever the user mentions Kimi or Kimi Swarm.
 ---
 
 # Kimi Swarm
