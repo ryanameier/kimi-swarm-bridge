@@ -1,5 +1,5 @@
 import type { BridgeConfig } from './config.js';
-import { buildContinuationPrompt, buildDelegationPrompt } from './prompt.js';
+import { buildContinuationPrompt, buildDelegationPrompt, RESEARCH_DEPTHS, type ResearchDepth } from './prompt.js';
 import { loadSwarmLimits } from './swarm-settings.js';
 import type { KimiHandoff } from './handoff.js';
 import type { KimiClient } from './kimi/client.js';
@@ -13,7 +13,9 @@ import path from 'node:path';
 import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } from './git.js';
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
 import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry.js';
-import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
+import { readFailureReason, readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
+import { getModelCatalog } from './model-pricing.js';
+import { coordinatorAlias, loadModelSettings } from './model-settings.js';
 
 export interface FileLister {
   listFiles(baseDir: string, relativeDir: string): Promise<string[]>;
@@ -39,6 +41,7 @@ export interface DelegateTaskInput {
   sessionId?: string;
   model?: string;
   thinking?: string;
+  depth?: ResearchDepth;
 }
 
 export interface DelegateAndWaitInput extends DelegateTaskInput {
@@ -78,6 +81,7 @@ export interface ContinueTaskInput {
   swarmMode?: boolean;
   model?: string;
   thinking?: string;
+  depth?: ResearchDepth;
 }
 
 export interface GetDiffInput {
@@ -141,6 +145,8 @@ export interface DelegateAndWaitResult {
   changedFiles?: string[];
   reviewPackage?: ReviewPackageResult;
   diagnostics?: DelegateAndWaitDiagnostics;
+  /** Why Kimi's turn failed (for example exhausted model credits), when it did. */
+  failureReason?: string;
   dedupe?: DelegateAndWaitDedupeResult;
   baselineStored?: boolean;
   baselineStoreError?: string;
@@ -226,11 +232,26 @@ async function resolveModel(
   inputModel: string | undefined,
   config: BridgeConfig,
 ): Promise<string> {
-  const model = inputModel ?? config.defaultModel ?? await kimi.resolveDefaultModel();
+  // The user's coordinator choice (kimi_model_settings) applies when the caller names no model.
+  const chosen = coordinatorAlias(loadModelSettings(config.stateDir), process.env.KIMI_MODEL_NAME);
+  const model = inputModel ?? chosen ?? config.defaultModel ?? await kimi.resolveDefaultModel();
   if (!model) {
     throw new Error('No model specified. Pass model in the MCP call, set KIMI_MODEL, or configure default_model in Kimi server.');
   }
   return model;
+}
+
+/** Deployment default research depth (KIMI_RESEARCH_DEPTH), standard unless set. */
+function defaultDepth(): ResearchDepth {
+  const value = process.env.KIMI_RESEARCH_DEPTH?.trim();
+  return (RESEARCH_DEPTHS as readonly string[]).includes(value ?? '') ? value as ResearchDepth : 'standard';
+}
+
+/** Prices by model id for cost estimates; undefined when the catalog is unavailable. */
+async function modelPrices() {
+  const catalog = await getModelCatalog();
+  if (!catalog) return undefined;
+  return new Map(catalog.flatMap((model) => (model.pricing ? [[model.id, model.pricing] as const] : [])));
 }
 
 function buildWebUrl(serverUrl: string, sessionId: string): string {
@@ -635,6 +656,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       ? await readSwarmEvidence({
           kimiCodeHome: deps.config.kimiCodeHome,
           sessionId: delegated.sessionId,
+          prices: await modelPrices(),
         })
       : undefined;
     const swarmFields = {
@@ -660,6 +682,10 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           delegated.webUrl,
           deps.config.serverToken,
         );
+      }
+      if (wait.status === 'failed') {
+        const failureReason = await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: delegated.sessionId });
+        if (failureReason) result.failureReason = failureReason;
       }
       return result;
     }
@@ -844,6 +870,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
           swarmLimits: loadSwarmLimits(deps.config.stateDir),
+          depth: input.depth ?? defaultDepth(),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1128,6 +1155,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
         swarmLimits: loadSwarmLimits(deps.config.stateDir),
+        depth: input.depth ?? defaultDepth(),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],
@@ -1177,10 +1205,15 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     const swarmEvidence = await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
       sessionId: input.sessionId,
+      prices: await modelPrices(),
     });
 
+    const failureReason = handoff.status === 'failed'
+      ? await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: input.sessionId })
+      : undefined;
     const result = {
       ...handoff,
+      ...(failureReason ? { failureReason } : {}),
       swarmEvidence,
     };
 

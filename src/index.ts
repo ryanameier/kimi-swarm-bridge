@@ -14,6 +14,7 @@ import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
 import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
 import { registerSwarmSettingsTool } from './swarm-tools.js';
+import { registerModelSettingsTool } from './model-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -133,6 +134,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         sessionId: z.string().optional().describe('Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs.'),
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
+        depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
       },
     },
     async (input) => runToolHandler(() => handlers.kimi_delegate_task(input)),
@@ -152,6 +154,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         sessionId: z.string().optional().describe('Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs.'),
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
+        depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
         dedupe: z.object({
           titleContains: z.string().describe('Case-insensitive substring used to find an existing recent session before creating a new one. Use a task-specific title fragment.'),
           status: z.string().optional().describe('Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed.'),
@@ -213,6 +216,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         swarmMode: z.boolean().optional().describe('Optional swarm-mode setting to verify before the continuation prompt. Set true only when the follow-up should allow native AgentSwarm.'),
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to keep the centrally configured model binding.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to keep the bridge default.'),
+        depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
       },
     },
     async (input) => runToolHandler(() => handlers.kimi_continue_task(input)),
@@ -303,6 +307,11 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
   );
 
   registerSwarmSettingsTool(server, config.stateDir);
+  registerModelSettingsTool(server, {
+    stateDir: config.stateDir,
+    kimiCodeHome: config.kimiCodeHome,
+    defaultThinking: config.defaultThinking,
+  });
 
   if (options.fileTransfer) {
     registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });

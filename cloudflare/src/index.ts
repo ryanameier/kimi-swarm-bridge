@@ -1,12 +1,14 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
-import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type RouteDeps } from "./routes";
+import { BRIDGE_PORT, createMcpHandler, fileGrantKey, handleAdminRoute, handleFileRoute, hex, type AgentLimits, type GateAdmin, type RouteDeps } from "./routes";
 import { backupName, deleteBackup, listBackups } from "./backups";
-import { AIAND_PLACEHOLDER, CREDENTIAL_HOSTS, FIRECRAWL_PLACEHOLDER, egressMode, type ModelBudgetResult } from "./egress";
+import { AIAND_PLACEHOLDER, BRAVE_PLACEHOLDER, CREDENTIAL_HOSTS, egressMode, type ModelBudgetResult } from "./egress";
+import { BROWSER_HOST } from "./browser";
 
 // Outbound interception entrypoint: attaches API keys, enforces budgets and egress policy.
 export { ContainerProxy } from "./container-proxy";
+export { AiandGate } from "./aiand-gate";
 
 const BRIDGE_READY_TIMEOUT_MS = 120_000;
 const SANDBOX_SLEEP_AFTER = "30m";
@@ -63,31 +65,45 @@ export class KimiSandbox extends Sandbox<Env> {
 		this.envVars = {
 			// Placeholders only: the real keys are attached to outbound requests by the Worker.
 			AIAND_API_KEY: AIAND_PLACEHOLDER,
-			FIRECRAWL_API_KEY: env.FIRECRAWL_API_KEY && env.FIRECRAWL_API_KEY !== "disabled" ? FIRECRAWL_PLACEHOLDER : "disabled",
+			BRAVE_API_KEY: env.BRAVE_API_KEY && env.BRAVE_API_KEY !== "disabled" ? BRAVE_PLACEHOLDER : "disabled",
 			KIMI_MCP_AUTH_TOKEN: env.BRIDGE_TOKEN,
 			KIMI_ORGANIZATION_ID: env.ORGANIZATION_ID || "default",
 			KIMI_CONNECTOR_INSTANCE_ID: "cloudflare",
 			// Swarm guardrails: agents per task (users can lower/raise within the cap)
 			// and how many workers call ai& at the same time.
-			KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: env.SWARM_CONCURRENCY || "4",
-			KIMI_MAX_AGENTS_CAP: env.MAX_AGENTS_CAP || "32",
-			KIMI_DEFAULT_MAX_AGENTS: env.DEFAULT_MAX_AGENTS || "4",
+			KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: env.SWARM_CONCURRENCY || "20",
+			KIMI_MAX_AGENTS_CAP: env.MAX_AGENTS_CAP || "20",
+			KIMI_DEFAULT_MAX_AGENTS: env.DEFAULT_MAX_AGENTS || "20",
+			// ai& model for new users; each user can switch with kimi_model_settings.
+			KIMI_MODEL_NAME: env.AIAND_MODEL || "zai-org/glm-5.3",
 		};
 	}
 
 	/** Make sure the bridge is serving; restores state and starts it on a fresh container. */
-	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void> {
+	async ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<AgentLimits | void> {
 		if (this.knownSandboxId !== sandboxId) {
 			await this.ctx.storage.put("sandboxId", sandboxId);
 			this.knownSandboxId = sandboxId;
 		}
 		await this.ctx.storage.delete("busySince");
 		await this.configureEgress();
-		if (await this.bridgeHealthy()) return;
+		if (await this.bridgeHealthy()) return this.agentLimits();
 		this.starting ??= this.startRuntime(sandboxId, publicBaseUrl).finally(() => {
 			this.starting = undefined;
 		});
 		await this.starting;
+		return this.agentLimits();
+	}
+
+	/** Admin override of this user's agent limits; null clears it. Applies on the next request. */
+	async setAgentLimits(limits: AgentLimits | null): Promise<AgentLimits | null> {
+		if (limits === null) await this.ctx.storage.delete("agentLimits");
+		else await this.ctx.storage.put("agentLimits", limits);
+		return (await this.agentLimits()) ?? null;
+	}
+
+	private async agentLimits(): Promise<AgentLimits | undefined> {
+		return this.ctx.storage.get<AgentLimits>("agentLimits");
 	}
 
 	/**
@@ -154,28 +170,33 @@ export class KimiSandbox extends Sandbox<Env> {
 
 	/**
 	 * Fixed operator self-test: confirms the container holds no real keys and
-	 * that ai&, Firecrawl, and general outbound access work through the proxy.
+	 * that ai&, web search, page rendering and general outbound access work.
 	 * Makes one minimal ai& request (counted against the user's budget).
 	 */
 	async selfTest(sandboxId: string, publicBaseUrl: string): Promise<Record<string, { ok: boolean; detail: string }>> {
 		await this.ensureRuntime(sandboxId, publicBaseUrl);
 		const checks: Record<string, string> = {
-			placeholderKeys: `real=$(for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < $f 2>/dev/null; done | grep -E '^(AIAND_API_KEY|KIMI_MODEL_API_KEY|FIRECRAWL_API_KEY)=' | grep -v -E '=(${AIAND_PLACEHOLDER}|${FIRECRAWL_PLACEHOLDER}|disabled)$' | sed 's/=.*/=<real value>/' | sort -u); test -z "$real" && echo placeholders-only || echo $real`,
-			aiand: `curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.aiand.com/v1/chat/completions -H "authorization: Bearer $AIAND_API_KEY" -H 'content-type: application/json' -d '{"model":"moonshotai/kimi-k3","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}'`,
-			firecrawl: `test "$FIRECRAWL_API_KEY" = disabled && echo disabled || curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.firecrawl.dev/v2/scrape -H "authorization: Bearer $FIRECRAWL_API_KEY" -H 'content-type: application/json' -d '{"url":"https://example.com","formats":["markdown"]}'`,
+			placeholderKeys: `real=$(for f in /proc/[0-9]*/environ; do tr '\\0' '\\n' < $f 2>/dev/null; done | grep -E '^(AIAND_API_KEY|KIMI_MODEL_API_KEY|BRAVE_API_KEY)=' | grep -v -E '=(${AIAND_PLACEHOLDER}|${BRAVE_PLACEHOLDER}|disabled)$' | sed 's/=.*/=<real value>/' | sort -u); test -z "$real" && echo placeholders-only || echo $real`,
+			aiand: `curl -s -m 60 -o /dev/null -w '%{http_code}' https://api.aiand.com/v1/chat/completions -H "authorization: Bearer $AIAND_API_KEY" -H 'content-type: application/json' -d "{\\"model\\":\\"$KIMI_MODEL_NAME\\",\\"max_tokens\\":1,\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"ok\\"}]}"`,
+			search: `test "$BRAVE_API_KEY" = disabled && echo disabled || curl -s -m 30 -o /dev/null -w '%{http_code}' "https://api.search.brave.com/res/v1/web/search?q=cloudflare&count=1" -H "x-subscription-token: $BRAVE_API_KEY" -H 'accept: application/json'`,
+			browser: `curl -s -m 60 "http://${BROWSER_HOST}/render?url=https%3A%2F%2Fexample.com" | grep -o 'Example Domain' | head -1`,
 			https: `curl -s -m 30 -o /dev/null -w '%{http_code}' https://example.com`,
 			git: `git ls-remote https://github.com/cloudflare/sandbox-sdk HEAD | cut -c1-12`,
 			pip: `python3 -c "import urllib.request;print(urllib.request.urlopen('https://pypi.org/simple/six/',timeout=30).status)"`,
 			npm: `npm view left-pad version`,
+			// Which bridge build this container runs (after a deploy, confirms the new image).
+			build: `date -u -r /app/dist/index.js +%Y-%m-%dT%H:%M:%SZ`,
 		};
 		const expect: Record<string, (out: string) => boolean> = {
 			placeholderKeys: (out) => out === "placeholders-only",
 			aiand: (out) => out === "200",
-			firecrawl: (out) => out === "200" || out === "disabled",
+			search: (out) => out === "200" || out === "disabled",
+			browser: (out) => out === "Example Domain",
 			https: (out) => out === "200",
 			git: (out) => /^[0-9a-f]{12}$/.test(out),
 			pip: (out) => out === "200",
 			npm: (out) => /^\d+\.\d+\.\d+$/.test(out),
+			build: (out) => /^\d{4}-/.test(out),
 		};
 		const results: Record<string, { ok: boolean; detail: string }> = {};
 		for (const [name, command] of Object.entries(checks)) {
@@ -352,12 +373,13 @@ export class KimiSandbox extends Sandbox<Env> {
 
 // Assigned (not declared as static fields) so the SDK's registering setters run.
 // Intercept the credential hosts; the ContainerProxy in ./egress attaches the keys.
-KimiSandbox.outboundByHost = Object.fromEntries(CREDENTIAL_HOSTS.map((host) => [host, passThrough]));
+KimiSandbox.outboundByHost = Object.fromEntries([...CREDENTIAL_HOSTS, BROWSER_HOST].map((host) => [host, passThrough]));
 // Catch-all used when EGRESS_MODE is log or allowlist.
 KimiSandbox.outboundHandlers = { egress: passThrough };
 
 const deps: RouteDeps<Env> = {
 	sandbox: (env, sandboxId) => getSandbox(env.KIMI_SANDBOX, sandboxId, { sleepAfter: SANDBOX_SLEEP_AFTER }),
+	gate: (env) => env.AIAND_GATE.get(env.AIAND_GATE.idFromName("org")) as unknown as GateAdmin,
 };
 
 export default new OAuthProvider({

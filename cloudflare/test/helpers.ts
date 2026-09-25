@@ -64,6 +64,7 @@ export function makeSandbox(containerResponse: (request: Request) => Response | 
 		restartRuntime: vi.fn(async () => {}),
 		selfTest: vi.fn(async () => ({ aiand: { ok: true, detail: "200" } })),
 		offboard: vi.fn(async () => ({ deletedBackups: ["b1"] })),
+		setAgentLimits: vi.fn(async (limits) => limits),
 	} satisfies SandboxApi;
 	const requested: string[] = [];
 	const deps: RouteDeps = {

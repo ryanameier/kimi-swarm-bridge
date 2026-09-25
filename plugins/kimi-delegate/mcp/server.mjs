@@ -22209,15 +22209,35 @@ var KimiClient = class {
 };
 
 // src/prompt.ts
-function swarmLimitText(limits) {
+var RESEARCH_DEPTHS = ["quick", "standard", "deep"];
+var DEPTH_TEXT = {
+  quick: 'use one authoritative source per item (official docs first), answer each requested point in a line, and write "not documented" instead of searching further',
+  standard: 'use one or two authoritative sources per item (official docs first), answer each requested point briefly, and when a detail is still missing after one batch of searches and reads, write "not documented" and move on',
+  deep: "be thorough: cross-check important figures across several sources, keep notes under /tmp/notes as you go, and follow up on gaps"
+};
+function depthOf(context) {
+  return context.depth ?? "standard";
+}
+var WORKER_STEP_BUDGET = { quick: 5, standard: 8, deep: 14 };
+function swarmLimitText(limits, depth = "standard") {
   if (!limits) return "";
-  return `Decide how many AgentSwarm workers the task needs (fewer for small or tightly coupled work), never more than ${limits.maxAgents}. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use only as many AgentSwarm workers as the task needs, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Do not use AgentSwarm for small or tightly coupled work. For independent items that each need web research (for example a list of products, companies or sources to compare), give each item its own worker: if there are no more items than the ceiling, use exactly one worker per item and do not group items; if there are more, spread them evenly across the ceiling. This finishes fastest at about the same total cost. For other work, split so that no worker has much more work than the others. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+Speed: start AgentSwarm right away unless the split is genuinely unclear. Call it exactly like this, with no other fields (a different shape is rejected and costs a retry):
+{"description": "<short summary>", "prompt_template": "<shared instructions> Your scope: {{item}}", "items": ["<scope 1>", "<scope 2>"]}
+prompt_template must contain {{item}} once; items are plain strings, at least 2, each different. Put the shared instructions in prompt_template, not in the items. Tell each worker to:
+- finish in as few steps as possible: one batch of web_search queries, one or two batches of read_page calls (several pages per call, each with a specific question), then write all of its output in a single step;
+- stop after about ${WORKER_STEP_BUDGET[depth]} tool calls: write what it has, mark anything still missing as "not found", and finish (the slowest worker decides when the whole swarm is done);
+- for research depth "${depth}": ${DEPTH_TEXT[depth]};
+- not inspect tool-result files, re-read its own output or re-verify, and never sleep or wait out rate limits (the tools retry on their own);
+- when the deliverable is a document with a summary table, write one file /workspace/outputs/.sections/<NN>-<topic>.md (NN = its item number, two digits): first its summary-table rows (one "| ... |" line per item, same columns for every worker, no table header), then its detail section(s) starting with a "##" or "###" heading; return only a short summary.
+Then finish with one shell command that writes /workspace/outputs/.sections/_head.md (title, short intro, the summary-table header and separator lines) and /workspace/outputs/.sections/_tail.md (recommendations) using quoted heredocs (cat > file <<'EOF' ... EOF), and then runs "kimi-assemble /workspace/outputs/<name>.md", which joins everything in order into one table and one document and deletes .sections. Write the intro and recommendations with the same care as always; only the tool calls are combined. Do not re-read, re-verify or repair the assembled file.
 `;
 }
 var WORKSPACE_FILES = `
 Files:
 Files shared by the user are in /workspace/inputs. Save every deliverable the user should receive in /workspace/outputs (create it if needed, use clear file names, do not overwrite inputs) and list those paths in the handoff.
 Files in /workspace persist between sessions, but installed dependencies and caches (node_modules, .venv, __pycache__, .cache) do not; reinstall them when missing.
+Web research: use web_search to find sources and read_page with a specific question to extract facts (it returns a short answer instead of the whole page). Batch: pass several queries or pages in one call. Do not sleep or poll to wait out rate limits.
 `;
 function list(items) {
   return items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
@@ -22241,7 +22261,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-${swarmLimitText(input.swarmLimits)}
+${swarmLimitText(input.swarmLimits, depthOf(input))}
 When complete, return a handoff with:
 - files changed
 - implementation summary
@@ -22270,7 +22290,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-${swarmLimitText(input.swarmLimits)}
+${swarmLimitText(input.swarmLimits, depthOf(input))}
 When complete, return a handoff with:
 - files changed
 - implementation summary
@@ -22443,6 +22463,25 @@ import path2 from "node:path";
 import { readFile as readFile2, readdir } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
+var EMPTY_USAGE = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
+function num(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+function sumUsage(records) {
+  const total = { ...EMPTY_USAGE };
+  for (const record2 of records) {
+    if (record2.type !== "usage.record" || !isRecord(record2.usage)) continue;
+    total.inputTokens += num(record2.usage.inputOther);
+    total.cachedInputTokens += num(record2.usage.inputCacheRead);
+    total.cacheWriteTokens += num(record2.usage.inputCacheCreation);
+    total.outputTokens += num(record2.usage.output);
+  }
+  return total;
+}
+function estimateCostUsd(usage, pricing) {
+  const cost = ((usage.inputTokens + usage.cacheWriteTokens) * pricing.inputPer1M + usage.cachedInputTokens * pricing.cachedInputPer1M + usage.outputTokens * pricing.outputPer1M) / 1e6;
+  return Math.round(cost * 1e4) / 1e4;
+}
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -22465,17 +22504,18 @@ async function parseJsonLines(filePath) {
 }
 function summarizeInference(records, fallbackAgentId) {
   const requests = records.filter((record2) => record2.type === "llm.request");
-  const strings = (key) => unique(requests.map(
+  const strings2 = (key) => unique(requests.map(
     (request) => typeof request[key] === "string" ? request[key] : void 0
   ));
   const agentId = requests.find((request) => typeof request.agentId === "string")?.agentId;
   return {
     agentId: typeof agentId === "string" ? agentId : fallbackAgentId,
     requestCount: requests.length,
-    providers: strings("provider"),
-    models: strings("model"),
-    modelAliases: strings("modelAlias"),
-    thinkingEfforts: strings("thinkingEffort")
+    usage: sumUsage(records),
+    providers: strings2("provider"),
+    models: strings2("model"),
+    modelAliases: strings2("modelAlias"),
+    thinkingEfforts: strings2("thinkingEffort")
   };
 }
 function loopEvent(record2) {
@@ -22564,8 +22604,10 @@ async function readSwarmEvidence(input) {
       workerOutcomes.set(agentId, outcome);
     }
   }
+  const agentDirs = (await readdir(agentsDir, { withFileTypes: true }).catch(() => [])).filter((entry) => entry.isDirectory() && entry.name !== "main").map((entry) => entry.name);
+  const workerIds = [.../* @__PURE__ */ new Set([...workerOutcomes.keys(), ...agentDirs])].sort();
   const workers = [];
-  for (const agentId of [...workerOutcomes.keys()].sort()) {
+  for (const agentId of workerIds) {
     let records = [];
     try {
       records = await parseJsonLines(join4(agentsDir, agentId, "wire.jsonl"));
@@ -22577,6 +22619,35 @@ async function readSwarmEvidence(input) {
       ...outcome !== void 0 ? { outcome } : {}
     });
   }
+  const coordinator = summarizeInference(mainRecords, "main");
+  const everyone = [coordinator, ...workers];
+  const usage = everyone.reduce((total, agent) => ({
+    inputTokens: total.inputTokens + agent.usage.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + agent.usage.cachedInputTokens,
+    cacheWriteTokens: total.cacheWriteTokens + agent.usage.cacheWriteTokens,
+    outputTokens: total.outputTokens + agent.usage.outputTokens
+  }), { ...EMPTY_USAGE });
+  let estimatedCostUsd;
+  if (input.prices) {
+    estimatedCostUsd = 0;
+    for (const agent of everyone) {
+      const pricing = agent.models.map((model) => input.prices.get(model)).find(Boolean);
+      if (!pricing) {
+        if (agent.requestCount > 0) {
+          estimatedCostUsd = void 0;
+          break;
+        }
+        continue;
+      }
+      estimatedCostUsd += estimateCostUsd(agent.usage, pricing);
+    }
+    if (estimatedCostUsd !== void 0) estimatedCostUsd = Math.round(estimatedCostUsd * 1e4) / 1e4;
+  }
+  const totalUsage = {
+    requestCount: everyone.reduce((count, agent) => count + agent.requestCount, 0),
+    ...usage,
+    ...estimatedCostUsd !== void 0 ? { estimatedCostUsd } : {}
+  };
   return {
     available: true,
     source: "kimi_wire_v1",
@@ -22585,9 +22656,183 @@ async function readSwarmEvidence(input) {
     requestedWorkerCount,
     workerCount: workers.length,
     completedWorkerCount: workers.filter((worker) => worker.outcome === "completed").length,
-    coordinator: summarizeInference(mainRecords, "main"),
-    workers
+    coordinator,
+    workers,
+    totalUsage
   };
+}
+async function readFailureReason(input) {
+  const kimiCodeHome = input.kimiCodeHome ?? join4(homedir2(), ".kimi-code");
+  const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
+  if (!agentsDir) return void 0;
+  let records;
+  try {
+    records = await parseJsonLines(join4(agentsDir, "main", "wire.jsonl"));
+  } catch {
+    return void 0;
+  }
+  const lastEnd = [...records].reverse().find((record2) => record2.type === "turn.ended");
+  if (!lastEnd || lastEnd.reason !== "failed") return void 0;
+  return describeError(lastEnd.error) ?? "Kimi reported a failed turn without details.";
+}
+function describeError(error2) {
+  if (typeof error2 === "string") return error2.slice(0, 1e3);
+  if (!isRecord(error2)) return void 0;
+  const message = typeof error2.message === "string" ? error2.message : void 0;
+  const code = typeof error2.code === "string" ? error2.code : void 0;
+  const detail = message ?? JSON.stringify(error2);
+  return (code && message ? `${code}: ${message}` : detail).slice(0, 1e3);
+}
+
+// src/model-pricing.ts
+var CACHE_MS = 60 * 60 * 1e3;
+var cached2;
+function price(value) {
+  const parsed = typeof value === "string" ? Number.parseFloat(value) : typeof value === "number" ? value : NaN;
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function strings(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function parseModelCatalog(listing) {
+  const data = listing?.data;
+  if (!Array.isArray(data)) return [];
+  const models = [];
+  for (const item of data) {
+    const entry = item;
+    if (typeof entry?.id !== "string") continue;
+    const inputPer1M = price(entry.input_per_1m);
+    const outputPer1M = price(entry.output_per_1m);
+    models.push({
+      id: entry.id,
+      ...inputPer1M !== void 0 && outputPer1M !== void 0 ? { pricing: { inputPer1M, outputPer1M, cachedInputPer1M: price(entry.cached_input_per_1m) ?? inputPer1M } } : {},
+      ...typeof entry.context_window === "number" ? { contextWindow: entry.context_window } : {},
+      capabilities: strings(entry.capabilities),
+      reasoningEfforts: strings(entry.reasoning_efforts),
+      ...typeof entry.reasoning_effort_default === "string" ? { defaultEffort: entry.reasoning_effort_default } : {},
+      ...typeof entry.description === "string" ? { description: entry.description } : {}
+    });
+  }
+  return models;
+}
+async function fetchCatalog(baseUrl, apiKey) {
+  try {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/models`, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5e3)
+    });
+    if (!response.ok) return void 0;
+    const catalog = parseModelCatalog(await response.json());
+    return catalog.length > 0 ? catalog : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getModelCatalog(env = process.env) {
+  const baseUrl = env.KIMI_MODEL_BASE_URL;
+  const apiKey = env.KIMI_MODEL_API_KEY;
+  if (!baseUrl || !apiKey) return Promise.resolve(void 0);
+  if (!cached2 || cached2.key !== baseUrl || Date.now() - cached2.at > CACHE_MS) {
+    const catalog = fetchCatalog(baseUrl, apiKey);
+    cached2 = { at: Date.now(), key: baseUrl, catalog };
+    void catalog.then((result) => {
+      if (result === void 0 && cached2?.catalog === catalog) cached2 = void 0;
+    });
+  }
+  return cached2.catalog;
+}
+
+// src/model-settings.ts
+import { existsSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join5 } from "node:path";
+var ENV_MODEL_ALIAS = "__kimi_env_model__";
+var ENV_PROVIDER = "__kimi_env__";
+var ALIAS_PREFIX = "aiand:";
+var MANAGED_HEADER = "# Managed by kimi-swarm-bridge (kimi_model_settings). Manual edits are overwritten.";
+function maxContextTokens(env = process.env) {
+  const raw = Number.parseInt(env.KIMI_MODEL_MAX_CONTEXT_SIZE ?? env.KIMI_CONTEXT_WINDOW ?? "", 10);
+  return Number.isInteger(raw) && raw > 0 ? raw : 131072;
+}
+function modelSettingsPath(stateDir) {
+  return join5(stateDir, "model-settings.json");
+}
+function loadModelSettings(stateDir) {
+  try {
+    const parsed = JSON.parse(readFileSync3(modelSettingsPath(stateDir), "utf8"));
+    return {
+      ...typeof parsed.coordinatorModel === "string" ? { coordinatorModel: parsed.coordinatorModel } : {},
+      ...typeof parsed.workerModel === "string" ? { workerModel: parsed.workerModel } : {}
+    };
+  } catch {
+    return {};
+  }
+}
+function saveModelSettings(stateDir, settings) {
+  mkdirSync3(stateDir, { recursive: true });
+  writeFileSync2(modelSettingsPath(stateDir), `${JSON.stringify(settings, null, 2)}
+`);
+}
+function modelAlias(modelId, defaultModel) {
+  return modelId === defaultModel ? ENV_MODEL_ALIAS : `${ALIAS_PREFIX}${modelId}`;
+}
+function selectableModels(catalog, env = process.env) {
+  const allowed = (env.KIMI_ALLOWED_MODELS ?? "").split(",").map((id) => id.trim()).filter(Boolean);
+  return catalog.filter((model) => model.capabilities.includes("tool_calling") && (allowed.length === 0 || allowed.includes(model.id)));
+}
+function effortFor(model, preferred) {
+  if (!model || model.reasoningEfforts.length === 0) return void 0;
+  if (model.reasoningEfforts.includes(preferred)) return preferred;
+  return model.defaultEffort ?? model.reasoningEfforts[0];
+}
+function kimiCapabilities(model) {
+  const capabilities = [];
+  if (model.capabilities.includes("reasoning")) capabilities.push("thinking");
+  if (model.capabilities.includes("vision")) capabilities.push("image_in");
+  return capabilities;
+}
+function tomlString(value) {
+  return JSON.stringify(value);
+}
+function renderKimiModelConfig(settings, catalog, defaultModel, preferredEffort) {
+  const lines = [MANAGED_HEADER, ""];
+  const ids = [.../* @__PURE__ */ new Set([settings.coordinatorModel, settings.workerModel])].filter((id) => id !== void 0 && id !== defaultModel);
+  for (const id of ids) {
+    const model = catalog.find((entry) => entry.id === id);
+    lines.push(
+      `[models.${tomlString(modelAlias(id, defaultModel))}]`,
+      `provider = ${tomlString(ENV_PROVIDER)}`,
+      `model = ${tomlString(id)}`,
+      `max_context_size = ${Math.min(model?.contextWindow ?? maxContextTokens(), maxContextTokens())}`,
+      `capabilities = [${(model ? kimiCapabilities(model) : ["thinking"]).map(tomlString).join(", ")}]`,
+      ""
+    );
+  }
+  const worker = settings.workerModel ?? settings.coordinatorModel;
+  if (worker !== void 0) {
+    const effort = effortFor(catalog.find((entry) => entry.id === worker), preferredEffort);
+    lines.push(
+      "[secondary_model]",
+      "force = true",
+      `default_model = ${tomlString(modelAlias(worker, defaultModel))}`,
+      ...effort ? [`default_effort = ${tomlString(effort)}`] : [],
+      ""
+    );
+  }
+  return `${lines.join("\n").trimEnd()}
+`;
+}
+function writeKimiModelConfig(kimiCodeHome, content) {
+  const path3 = join5(kimiCodeHome, "config.toml");
+  if (existsSync(path3) && !readFileSync3(path3, "utf8").startsWith(MANAGED_HEADER)) {
+    throw new Error(`${path3} was not written by kimi-swarm-bridge; not replacing it.`);
+  }
+  mkdirSync3(kimiCodeHome, { recursive: true });
+  const temp = `${path3}.tmp`;
+  writeFileSync2(temp, content, { mode: 384 });
+  renameSync(temp, path3);
+}
+function coordinatorAlias(settings, defaultModel) {
+  return settings.coordinatorModel === void 0 ? void 0 : modelAlias(settings.coordinatorModel, defaultModel);
 }
 
 // src/tools.ts
@@ -22598,11 +22843,21 @@ function withPreflight(preflight, fn) {
   };
 }
 async function resolveModel(kimi, inputModel, config2) {
-  const model = inputModel ?? config2.defaultModel ?? await kimi.resolveDefaultModel();
+  const chosen = coordinatorAlias(loadModelSettings(config2.stateDir), process.env.KIMI_MODEL_NAME);
+  const model = inputModel ?? chosen ?? config2.defaultModel ?? await kimi.resolveDefaultModel();
   if (!model) {
     throw new Error("No model specified. Pass model in the MCP call, set KIMI_MODEL, or configure default_model in Kimi server.");
   }
   return model;
+}
+function defaultDepth() {
+  const value = process.env.KIMI_RESEARCH_DEPTH?.trim();
+  return RESEARCH_DEPTHS.includes(value ?? "") ? value : "standard";
+}
+async function modelPrices() {
+  const catalog = await getModelCatalog();
+  if (!catalog) return void 0;
+  return new Map(catalog.flatMap((model) => model.pricing ? [[model.id, model.pricing]] : []));
 }
 function buildWebUrl(serverUrl, sessionId) {
   return `${serverUrl}/sessions/${encodeURIComponent(sessionId)}`;
@@ -22930,7 +23185,8 @@ function createToolHandlers(deps) {
     };
     const swarmEvidence = delegated.swarmModeActivated === true ? await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
-      sessionId: delegated.sessionId
+      sessionId: delegated.sessionId,
+      prices: await modelPrices()
     }) : void 0;
     const swarmFields = {
       ...delegated.swarmModeActivated !== void 0 ? { swarmModeActivated: delegated.swarmModeActivated } : {},
@@ -22955,6 +23211,10 @@ function createToolHandlers(deps) {
           delegated.webUrl,
           deps.config.serverToken
         );
+      }
+      if (wait.status === "failed") {
+        const failureReason = await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: delegated.sessionId });
+        if (failureReason) result.failureReason = failureReason;
       }
       return result;
     }
@@ -23111,6 +23371,7 @@ function createToolHandlers(deps) {
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
           swarmLimits: loadSwarmLimits(deps.config.stateDir),
+          depth: input.depth ?? defaultDepth(),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -23353,6 +23614,7 @@ function createToolHandlers(deps) {
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
         swarmLimits: loadSwarmLimits(deps.config.stateDir),
+        depth: input.depth ?? defaultDepth(),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],
@@ -23395,10 +23657,13 @@ function createToolHandlers(deps) {
     const handoff = await handlers.kimi_get_handoff(input);
     const swarmEvidence = await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
-      sessionId: input.sessionId
+      sessionId: input.sessionId,
+      prices: await modelPrices()
     });
+    const failureReason = handoff.status === "failed" ? await readFailureReason({ kimiCodeHome: deps.config.kimiCodeHome, sessionId: input.sessionId }) : void 0;
     const result = {
       ...handoff,
+      ...failureReason ? { failureReason } : {},
       swarmEvidence
     };
     if (job && deps.jobRegistry) {
@@ -23425,7 +23690,7 @@ function createToolHandlers(deps) {
 import { createHash as createHash2, createHmac, randomBytes, randomUUID as randomUUID3, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { lstat, mkdir as mkdir2, readdir as readdir3, realpath as realpath2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
-import { basename, dirname as dirname2, extname, join as join5, relative, resolve, sep } from "node:path";
+import { basename, dirname as dirname2, extname, join as join6, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
 var DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 function b64url(data) {
@@ -23472,14 +23737,14 @@ async function uniqueDestination(dir, filename) {
   const ext = extname(filename);
   const stem = filename.slice(0, filename.length - ext.length);
   for (let i = 0; i < 1e3; i += 1) {
-    const candidate = join5(dir, i === 0 ? filename : `${stem} (${i})${ext}`);
+    const candidate = join6(dir, i === 0 ? filename : `${stem} (${i})${ext}`);
     try {
       await lstat(candidate);
     } catch {
       return candidate;
     }
   }
-  return join5(dir, `${stem}-${randomUUID3()}${ext}`);
+  return join6(dir, `${stem}-${randomUUID3()}${ext}`);
 }
 async function sha256File(path3) {
   const hash = createHash2("sha256");
@@ -23539,7 +23804,7 @@ async function listWorkspaceFiles(config2, rawDir = ".", limit = 200) {
     }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (LIST_SKIP.has(entry.name)) continue;
-      const full = join5(dir, entry.name);
+      const full = join6(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(full, depth + 1);
       } else if (entry.isFile()) {
@@ -23863,10 +24128,86 @@ function registerSwarmSettingsTool(server, stateDir) {
   );
 }
 
+// src/model-tools.ts
+function describeModel(model) {
+  return {
+    id: model.id,
+    ...model.pricing ? {
+      usdPerMillionTokens: {
+        input: model.pricing.inputPer1M,
+        cachedInput: model.pricing.cachedInputPer1M,
+        output: model.pricing.outputPer1M
+      }
+    } : {},
+    ...model.contextWindow ? { contextWindow: model.contextWindow } : {},
+    capabilities: model.capabilities,
+    reasoningEfforts: model.reasoningEfforts,
+    ...model.description ? { description: model.description } : {}
+  };
+}
+function effective(settings, defaultModel) {
+  const coordinator = settings.coordinatorModel ?? defaultModel ?? "Kimi default";
+  return { coordinatorModel: coordinator, workerModel: settings.workerModel ?? coordinator };
+}
+function registerModelSettingsTool(server, options) {
+  const env = options.env ?? process.env;
+  server.registerTool(
+    "kimi_model_settings",
+    {
+      title: "Kimi Swarm Models",
+      description: `Show or change which ai& models Kimi uses. The coordinator plans the task, delegates to AgentSwarm workers and writes the result; the workers do the parallel work, and most of a swarm's tokens are theirs, so a cheaper worker model cuts cost the most. Call with no arguments to list the available models with prices (USD per million tokens) and the current choice. Call with coordinatorModel and/or workerModel (model ids from the list) when the user asks to switch models; use "default" to return the coordinator to the deployment default and "same" to make workers use the coordinator model. Changes apply to tasks started afterwards; the setting is per user and persists.`,
+      inputSchema: {
+        coordinatorModel: external_exports.string().min(1).optional().describe('ai& model id for the coordinator, or "default".'),
+        workerModel: external_exports.string().min(1).optional().describe('ai& model id for AgentSwarm workers, or "same" (use the coordinator model).')
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
+    },
+    async (input) => runToolHandler(async () => {
+      const defaultModel = env.KIMI_MODEL_NAME;
+      const catalog = await getModelCatalog(env);
+      if (!catalog) throw new Error("The ai& model catalog is unavailable right now; try again shortly.");
+      const selectable = selectableModels(catalog, env);
+      const current = loadModelSettings(options.stateDir);
+      if (input.coordinatorModel === void 0 && input.workerModel === void 0) {
+        return {
+          ...effective(current, defaultModel),
+          deploymentDefault: defaultModel,
+          availableModels: selectable.map(describeModel)
+        };
+      }
+      const pick2 = (id, role) => {
+        if (!selectable.some((model) => model.id === id)) {
+          throw new Error(`Unknown or unavailable ${role} model "${id}". Available: ${selectable.map((model) => model.id).join(", ")}`);
+        }
+        return id;
+      };
+      const next = { ...current };
+      if (input.coordinatorModel !== void 0) {
+        if (input.coordinatorModel === "default") delete next.coordinatorModel;
+        else next.coordinatorModel = pick2(input.coordinatorModel, "coordinator");
+      }
+      if (input.workerModel !== void 0) {
+        if (input.workerModel === "same") delete next.workerModel;
+        else next.workerModel = pick2(input.workerModel, "worker");
+      }
+      if (!options.kimiCodeHome) throw new Error("KIMI_CODE_HOME is not set, so worker models cannot be configured here.");
+      writeKimiModelConfig(options.kimiCodeHome, renderKimiModelConfig(next, catalog, defaultModel, options.defaultThinking));
+      saveModelSettings(options.stateDir, next);
+      const result = effective(next, defaultModel);
+      const price2 = (id) => catalog.find((model) => model.id === id)?.pricing;
+      return {
+        ...result,
+        prices: { coordinator: price2(result.coordinatorModel), workers: price2(result.workerModel) },
+        note: "Applies to Kimi tasks started from now on. Running tasks keep their models."
+      };
+    })
+  );
+}
+
 // src/preflight.ts
 import { spawn as defaultSpawn } from "node:child_process";
 import { homedir as homedir3 } from "node:os";
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 var DEFAULT_STARTUP_TIMEOUT_MS = 3e4;
 var DEFAULT_POLL_INTERVAL_MS = 500;
 function shellQuote(arg) {
@@ -23896,8 +24237,8 @@ var KimiPreflight = class {
   lastSuccessStatus;
   lastSuccessAt;
   async ensureReady() {
-    const cached2 = this.readCache();
-    if (cached2) return cached2;
+    const cached3 = this.readCache();
+    if (cached3) return cached3;
     let status = await this.checkOnce();
     if (!status.healthzOk) {
       if (!this.config.autoStart) {
@@ -24028,14 +24369,14 @@ var KimiPreflight = class {
     }
     const check2 = (path3) => `test -f ${shellQuote(path3)} && echo "token file exists" || echo "token file missing"`;
     if (serverTokenSource === "kimi_code_home" && kimiCodeHome) {
-      return [check2(join6(kimiCodeHome, "server.token"))];
+      return [check2(join7(kimiCodeHome, "server.token"))];
     }
     if (serverTokenSource === "home") {
-      return [check2(join6(homedir3(), ".kimi-code", "server.token"))];
+      return [check2(join7(homedir3(), ".kimi-code", "server.token"))];
     }
-    const commands = [check2(join6(homedir3(), ".kimi-code", "server.token"))];
+    const commands = [check2(join7(homedir3(), ".kimi-code", "server.token"))];
     if (kimiCodeHome) {
-      commands.push(check2(join6(kimiCodeHome, "server.token")));
+      commands.push(check2(join7(kimiCodeHome, "server.token")));
     }
     return commands;
   }
@@ -24219,7 +24560,8 @@ function createMcpServer(options = {}) {
         swarmMode: external_exports.boolean().optional().describe("Set true to activate and verify Kimi native swarm mode before prompt submission. Activation does not by itself prove AgentSwarm executed; use kimi_delegate_and_wait for structured swarm evidence."),
         sessionId: external_exports.string().optional().describe("Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs."),
         model: external_exports.string().optional().describe("Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias."),
-        thinking: external_exports.string().optional().describe("Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.")
+        thinking: external_exports.string().optional().describe("Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking."),
+        depth: external_exports.enum(["quick", "standard", "deep"]).optional().describe("Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).")
       }
     },
     async (input) => runToolHandler(() => handlers.kimi_delegate_task(input))
@@ -24238,6 +24580,7 @@ function createMcpServer(options = {}) {
         sessionId: external_exports.string().optional().describe("Existing Kimi session ID to submit into. Omit for a fresh session; fresh sessions are recommended for new swarm jobs."),
         model: external_exports.string().optional().describe("Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias."),
         thinking: external_exports.string().optional().describe("Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking."),
+        depth: external_exports.enum(["quick", "standard", "deep"]).optional().describe("Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough)."),
         dedupe: external_exports.object({
           titleContains: external_exports.string().describe("Case-insensitive substring used to find an existing recent session before creating a new one. Use a task-specific title fragment."),
           status: external_exports.string().optional().describe("Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed."),
@@ -24294,7 +24637,8 @@ function createMcpServer(options = {}) {
         plan: external_exports.array(external_exports.string()).optional().describe("Optional ordered steps for the follow-up work."),
         swarmMode: external_exports.boolean().optional().describe("Optional swarm-mode setting to verify before the continuation prompt. Set true only when the follow-up should allow native AgentSwarm."),
         model: external_exports.string().optional().describe("Configured Kimi model alias. In the managed ai& deployment omit this field to keep the centrally configured model binding."),
-        thinking: external_exports.string().optional().describe("Optional Kimi thinking setting. Omit to keep the bridge default.")
+        thinking: external_exports.string().optional().describe("Optional Kimi thinking setting. Omit to keep the bridge default."),
+        depth: external_exports.enum(["quick", "standard", "deep"]).optional().describe("Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).")
       }
     },
     async (input) => runToolHandler(() => handlers.kimi_continue_task(input))
@@ -24378,6 +24722,11 @@ function createMcpServer(options = {}) {
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input))
   );
   registerSwarmSettingsTool(server, config2.stateDir);
+  registerModelSettingsTool(server, {
+    stateDir: config2.stateDir,
+    kimiCodeHome: config2.kimiCodeHome,
+    defaultThinking: config2.defaultThinking
+  });
   if (options.fileTransfer) {
     registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });
   }

@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+- Organization-wide ai& concurrency limit: every employee's model calls pass through one
+  `AiandGate` Durable Object that keeps requests in flight under `AIAND_CONCURRENCY_LIMIT`
+  (setup `KIMI_AIAND_CONCURRENCY`, default 100 = ai&'s starting limit, 0 = off). Extra requests
+  queue instead of getting HTTP 429. `GET`/`POST /admin/aiand-limit` shows usage and changes the
+  limit live.
+- Timing logs (`{"event":"timing"}`) for every model request (queue wait, time to first byte,
+  total, ai& inference time), search, browser render and, in log/allowlist mode, page fetch.
+- The coordinator writes the report frame and runs `kimi-assemble` in one command.
+- Faster swarms: the coordinator is shown the exact AgentSwarm call shape (its first launch was
+  often rejected and retried), workers get a soft tool-call budget by depth (5 / 8 / 14) so one
+  worker can't hold up the swarm, and `read_page` stops waiting for a slow page 8s after half the
+  batch is done (reader model timeout 20s, browser 15s).
+- `kimi-assemble`: joins the workers' section files into one document (one contiguous table,
+  sections in order) without a model. In a 15-worker run the coordinator had spent 4 minutes
+  repairing a hand-assembled report.
+- Cloudflare defaults for new deployments: 20 agents per task (Kimi uses fewer when it can), 20
+  running at once, and `EGRESS_MODE=log`. Existing deployments keep their settings on re-run.
+- Setup writes `cloudflare/employee-guide.<worker>.md`, the employee guide with the connector URL
+  and domain filled in. The guide gained copy-paste starter prompts and the one extra step for
+  personal Claude Pro/Max accounts.
+- README cleanup: removed the Glama-hosted Claude Desktop walkthrough and pilot wording. The
+  Claude Desktop wrapper in `scripts/claude-desktop/` now needs `KIMI_MCP_URL` and reads the token
+  from the Keychain item `kimi-swarm-mcp` (was `kimi-swarm-glama`, with a Glama URL hardcoded).
+- README: benchmarks of Kimi Swarm vs Claude on web research briefs (time, completeness, cost) and
+  what limits scaling past them.
+- `kimi_model_settings`: users switch the ai& models Kimi uses from chat, separately for the
+  coordinator and the AgentSwarm workers (for example a cheaper worker model). The tool lists the
+  ai& models with live prices; admins can narrow the list with `KIMI_ALLOWED_MODELS`. Choices are
+  per user, persist, and are applied through Kimi Code's config (hot reloaded, no restart).
+- Task results report token usage per agent and an estimated USD cost from ai& prices.
+- Kimi is told to use the fewest workers that do the task well, overriding Kimi Code's default
+  guidance to maximize agents; the per-user ceiling stays an upper bound.
+- The admin self-test reports which bridge build a container runs.
+- Default model is `zai-org/glm-5.3` (deployment setting `AIAND_MODEL`, setup `KIMI_MODEL`);
+  model capabilities (for example image input) come from the ai& catalog. New deployments start
+  at 4 agents with a user-adjustable cap of 20.
+- Failed tasks report why (`failureReason`, from Kimi's turn record), for example exhausted model
+  credits.
+- Web research replaces Firecrawl: `web_search` (Brave Search API, `BRAVE_API_KEY`) and
+  `read_page`, which fetches a page and returns only the requested facts via a small reader model
+  (`KIMI_READER_MODEL`), with Cloudflare Browser Rendering for JavaScript pages. The Worker
+  attaches the Brave key and retries Brave rate limits. Firecrawl and `FIRECRAWL_API_KEY` are
+  removed.
+- Lower token use per step: small web tool definitions, Kimi compacts context at a 128k window
+  (`KIMI_CONTEXT_WINDOW`), and workers keep notes and return concise summaries.
+- `docs/using-kimi-swarm.md`: a one-page guide for employees.
+
 ## 0.4.0 (2026-09-25)
 
 Organization deployment on Cloudflare: every employee gets Kimi Swarm in Claude with their own

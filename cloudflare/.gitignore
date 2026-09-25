@@ -2,3 +2,5 @@ node_modules
 .wrangler
 .dev.vars
 wrangler.deploy.jsonc
+wrangler.*.deploy.jsonc
+employee-guide.*.md

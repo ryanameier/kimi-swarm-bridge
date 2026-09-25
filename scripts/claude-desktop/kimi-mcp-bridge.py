@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # Minimal Claude Desktop stdio -> remote Streamable HTTP MCP bridge.
-# Reads line-delimited JSON-RPC from stdin, forwards to Glama, captures
+# Reads line-delimited JSON-RPC from stdin, forwards to a self-hosted bridge, captures
 # Mcp-Session-Id, accepts JSON or SSE, and writes JSON-RPC to stdout.
 
 import json
@@ -10,14 +10,15 @@ import sys
 import urllib.error
 import urllib.request
 
-REMOTE_URL = os.environ.get(
-    "KIMI_MCP_URL",
-    "https://glama.ai/endpoints/bqnlviwzd5/mcp",
-)
-TOKEN = os.environ.get("GLAMA_TOKEN")
+REMOTE_URL = os.environ.get("KIMI_MCP_URL")
+TOKEN = os.environ.get("KIMI_MCP_AUTH_TOKEN")
+
+if not REMOTE_URL:
+    print("KIMI_MCP_URL is not set", file=sys.stderr)
+    sys.exit(1)
 
 if not TOKEN:
-    print("GLAMA_TOKEN is not set", file=sys.stderr)
+    print("KIMI_MCP_AUTH_TOKEN is not set", file=sys.stderr)
     sys.exit(1)
 
 session_id = None

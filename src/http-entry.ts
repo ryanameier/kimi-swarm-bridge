@@ -10,6 +10,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { loadBridgeConfig } from './config.js';
 import { handleFileRequest, loadFileTransferConfig } from './file-transfer.js';
 import { createMcpServer } from './index.js';
+import { applySavedModelSettings } from './model-tools.js';
 import { KimiClient } from './kimi/client.js';
 import { KimiHttpClient } from './kimi/http.js';
 
@@ -111,6 +112,23 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
+ * Agent limits sent by the fronting proxy with each request, so admins can
+ * change them without restarting the container. Values apply to this process
+ * (one container per user) from this request on.
+ */
+const LIMIT_HEADERS: Record<string, string> = {
+  'x-kimi-max-agents-cap': 'KIMI_MAX_AGENTS_CAP',
+  'x-kimi-default-max-agents': 'KIMI_DEFAULT_MAX_AGENTS',
+};
+
+export function applyLimitHeaders(req: IncomingMessage, env: NodeJS.ProcessEnv = process.env): void {
+  for (const [header, name] of Object.entries(LIMIT_HEADERS)) {
+    const value = req.headers[header];
+    if (typeof value === 'string' && /^[1-9][0-9]{0,3}$/.test(value)) env[name] = value;
+  }
+}
+
+/**
  * Stateless MCP for fronting proxies that own the session layer (the
  * Cloudflare Worker answers initialize and tools/list itself so a sleeping
  * container is not woken, and it survives container restarts). Every request
@@ -140,6 +158,7 @@ async function handleStatelessRequest(
     return;
   }
 
+  applyLimitHeaders(req);
   const clientHeader = req.headers['x-kimi-client-name'];
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -337,4 +356,10 @@ httpServer.listen(port, host, () => {
   process.stderr.write(
     `Kimi swarm MCP listening on http://${host}:${port}/mcp\n`,
   );
+  const bridgeConfig = loadBridgeConfig();
+  void applySavedModelSettings({
+    stateDir: bridgeConfig.stateDir,
+    kimiCodeHome: bridgeConfig.kimiCodeHome,
+    defaultThinking: bridgeConfig.defaultThinking,
+  });
 });

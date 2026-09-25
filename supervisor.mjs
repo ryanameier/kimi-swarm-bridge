@@ -10,16 +10,12 @@ const kimiBaseUrl = `http://${kimiHost}:${kimiPort}`;
 
 applyAiandRuntimePolicy(process.env);
 
-// Register Internet MCP tools for Kimi (coordinator and coder workers load
-// user-global servers from $KIMI_CODE_HOME/mcp.json). Stdio MCP children do not
-// inherit the full environment, so the key is written into the server entry.
+// Register the web research tools (web_search via Brave, read_page) for Kimi
+// (coordinator and workers load user-global servers from $KIMI_CODE_HOME/mcp.json).
+// Settings are passed explicitly because stdio MCP children may not inherit the
+// full environment. On Cloudflare the keys are placeholders; the Worker attaches
+// the real ones to outgoing requests.
 async function registerInternetTools() {
-  const firecrawlKey = process.env.FIRECRAWL_API_KEY?.trim();
-
-  if (!firecrawlKey || firecrawlKey === "disabled") {
-    return;
-  }
-
   const mcpPath = `${kimiCodeHome}/mcp.json`;
   let config = {};
 
@@ -29,14 +25,32 @@ async function registerInternetTools() {
     // No existing config.
   }
 
-  config.mcpServers = {
-    ...config.mcpServers,
-    firecrawl: {
-      command: "firecrawl-mcp",
-      args: [],
-      env: { FIRECRAWL_API_KEY: firecrawlKey },
-    },
+  const pass = (names) =>
+    Object.fromEntries(
+      names
+        .filter((name) => process.env[name])
+        .map((name) => [name, process.env[name]]),
+    );
+
+  const servers = { ...config.mcpServers };
+  // Firecrawl was replaced by the built-in web tools.
+  delete servers.firecrawl;
+  servers.web = {
+    command: "node",
+    args: ["/app/dist/web-tools.js"],
+    env: pass([
+      "BRAVE_API_KEY",
+      "KIMI_MODEL_BASE_URL",
+      "KIMI_MODEL_API_KEY",
+      "KIMI_READER_MODEL",
+      "KIMI_BROWSER_RENDERING",
+      "NODE_EXTRA_CA_CERTS",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "NO_PROXY",
+    ]),
   };
+  config.mcpServers = servers;
 
   await mkdir(kimiCodeHome, { recursive: true });
   await writeFile(mcpPath, `${JSON.stringify(config, null, 2)}\n`, {
@@ -46,8 +60,41 @@ async function registerInternetTools() {
 
 await registerInternetTools();
 
+// Tell Kimi what the configured model can do (Kimi otherwise assumes image
+// input, which text-only models such as GLM reject). Uses ai&'s catalog.
+async function detectModelCapabilities() {
+  if (process.env.KIMI_MODEL_CAPABILITIES) return;
+  let capabilities = ["thinking"];
+  try {
+    const response = await fetch(`${process.env.KIMI_MODEL_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${process.env.KIMI_MODEL_API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const entry = (await response.json()).data?.find(
+      (model) => model.id === process.env.KIMI_MODEL_NAME,
+    );
+    if (entry && Array.isArray(entry.capabilities)) {
+      capabilities = [
+        ...(entry.capabilities.includes("reasoning") ? ["thinking"] : []),
+        ...(entry.capabilities.includes("vision") ? ["image_in"] : []),
+      ];
+    }
+  } catch (error) {
+    console.error(`Model catalog unavailable; assuming text-only: ${error}`);
+  }
+  process.env.KIMI_MODEL_CAPABILITIES = capabilities.join(",") || "thinking";
+}
+
+await detectModelCapabilities();
+
 Object.assign(process.env, {
   KIMI_CODE_HOME: kimiCodeHome,
+  // Kimi compacts its context at ~85% of this window. A smaller window keeps
+  // long-running agents from re-sending very large contexts on every step.
+  KIMI_MODEL_MAX_CONTEXT_SIZE:
+    process.env.KIMI_MODEL_MAX_CONTEXT_SIZE ||
+    process.env.KIMI_CONTEXT_WINDOW ||
+    "131072",
   KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY:
     process.env.KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY || "4",
 

@@ -26,7 +26,9 @@ export interface BackupStatus {
 
 /** The parts of the sandbox Durable Object the routes use. */
 export interface SandboxApi {
-	ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<void>;
+	/** Starts the runtime if needed; returns this user's agent-cap override, if an admin set one. */
+	ensureRuntime(sandboxId: string, publicBaseUrl: string): Promise<AgentLimits | void>;
+	setAgentLimits(limits: AgentLimits | null): Promise<AgentLimits | null>;
 	containerFetch(request: Request, port: number): Promise<Response>;
 	backupNow(stateOnly?: boolean): Promise<void>;
 	requestBackup(stateOnly?: boolean): Promise<void>;
@@ -37,8 +39,16 @@ export interface SandboxApi {
 	offboard(sandboxId: string): Promise<{ deletedBackups: string[] }>;
 }
 
+/** Per-user agent limits set by an admin; they override the deployment defaults. */
+export interface AgentLimits {
+	maxAgentsCap?: number;
+	defaultMaxAgents?: number;
+}
+
 export interface RouteEnv {
 	BRIDGE_TOKEN: string;
+	MAX_AGENTS_CAP?: string;
+	DEFAULT_MAX_AGENTS?: string;
 	ADMIN_TOKEN?: string;
 	OAUTH_KV: SnapshotStore & GrantKv;
 	CF_VERSION_METADATA?: { id: string };
@@ -47,8 +57,16 @@ export interface RouteEnv {
 	OAUTH_PROVIDER?: GrantAdmin;
 }
 
+/** The organization-wide ai& concurrency gate (AiandGate) as the admin API sees it. */
+export interface GateAdmin {
+	stats(): Promise<unknown>;
+	setLimit(limit: number | null): Promise<unknown>;
+	resetStats(): Promise<unknown>;
+}
+
 export interface RouteDeps<E extends RouteEnv = RouteEnv> {
 	sandbox(env: E, sandboxId: string): SandboxApi;
+	gate?(env: E): GateAdmin | undefined;
 }
 
 export function hex(bytes: ArrayBuffer): string {
@@ -90,7 +108,7 @@ export function calledTools(body: string): string[] {
 	}
 }
 
-export function forwardHeaders(request: Request, env: RouteEnv, clientName?: string): Headers {
+export function forwardHeaders(request: Request, env: RouteEnv, clientName?: string, limits?: AgentLimits | void): Headers {
 	const headers = new Headers(request.headers);
 	headers.set("authorization", `Bearer ${env.BRIDGE_TOKEN}`);
 	headers.delete("cookie");
@@ -99,6 +117,11 @@ export function forwardHeaders(request: Request, env: RouteEnv, clientName?: str
 		headers.delete("mcp-session-id");
 		headers.set("x-kimi-mcp-mode", "stateless");
 		headers.set("x-kimi-client-name", clientName);
+		// Agent limits travel with each request so changes apply without restarting containers.
+		const cap = limits?.maxAgentsCap ?? Number.parseInt(env.MAX_AGENTS_CAP ?? "", 10);
+		const initial = limits?.defaultMaxAgents ?? Number.parseInt(env.DEFAULT_MAX_AGENTS ?? "", 10);
+		if (Number.isInteger(cap) && cap > 0) headers.set("x-kimi-max-agents-cap", String(cap));
+		if (Number.isInteger(initial) && initial > 0) headers.set("x-kimi-default-max-agents", String(initial));
 	}
 	return headers;
 }
@@ -122,9 +145,9 @@ export function createMcpHandler<E extends RouteEnv>(deps: RouteDeps<E>) {
 		const sandboxId = await sandboxIdFor(props.login);
 		const sandbox = deps.sandbox(env, sandboxId);
 		const toContainer = async (payload: string | undefined) => {
-			await sandbox.ensureRuntime(sandboxId, new URL(request.url).origin);
+			const limits = await sandbox.ensureRuntime(sandboxId, new URL(request.url).origin);
 			return sandbox.containerFetch(
-				new Request(`http://container/mcp`, { method: "POST", headers: forwardHeaders(request, env, action.clientName), body: payload }),
+				new Request(`http://container/mcp`, { method: "POST", headers: forwardHeaders(request, env, action.clientName, limits), body: payload }),
 				BRIDGE_PORT,
 			);
 		};
@@ -272,15 +295,20 @@ function adminAuthorized(request: Request, env: RouteEnv): boolean {
  *   GET    /admin/sandboxes                 signed-in employees (sandbox id, name, grants)
  *   GET    /admin/sandboxes/<id>            backup status and today's ai& usage
  *   POST   /admin/sandboxes/<id>/backup     back up now
- *   POST   /admin/sandboxes/<id>/selftest   fixed checks: no real keys in the container; ai&, Firecrawl, web, git, pip, npm reachable
+ *   POST   /admin/sandboxes/<id>/selftest   fixed checks: no real keys in the container; ai&, Brave search, browser rendering, web, git, pip, npm
  *   POST   /admin/sandboxes/<id>/restart    stop the container (applies new images; next request restores)
+ *   POST   /admin/sandboxes/<id>/limits     per-user agent cap override {"maxAgentsCap": n, "defaultMaxAgents": n}, or null to clear; applies without restart
  *   DELETE /admin/sandboxes/<id>            offboard: revoke sign-ins, destroy the container, delete its state and backups
  *   GET    /admin/backups                   all backups in R2 with owner, size and date
  *   DELETE /admin/backups/<backup-id>       delete one backup
+ *   GET    /admin/aiand-limit               organization-wide ai& concurrency: limit, in flight, queued, peak, waits
+ *   POST   /admin/aiand-limit               {"concurrency": n} (0 = off) or null to return to AIAND_CONCURRENCY_LIMIT;
+ *                                           {"resetStats": true} clears peak/wait counters; applies immediately
  */
 export async function handleAdminRoute<E extends RouteEnv>(request: Request, env: E, deps: RouteDeps<E>): Promise<Response | null> {
 	const url = new URL(request.url);
-	const match = /^\/admin\/(sandboxes|backups)(?:\/([^/]+)(?:\/(backup|restart|selftest))?)?$/.exec(url.pathname);
+	if (url.pathname === "/admin/aiand-limit") return handleGateRoute(request, env, deps);
+	const match = /^\/admin\/(sandboxes|backups)(?:\/([^/]+)(?:\/(backup|restart|selftest|limits))?)?$/.exec(url.pathname);
 	if (!match) return null;
 	if (!adminAuthorized(request, env)) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -327,6 +355,23 @@ export async function handleAdminRoute<E extends RouteEnv>(request: Request, env
 	}
 	if (request.method !== "POST" || !action) return methodNotAllowed();
 
+	if (action === "limits") {
+		let body: { maxAgentsCap?: unknown; defaultMaxAgents?: unknown } | null;
+		try {
+			body = (await request.json()) as typeof body;
+		} catch {
+			return Response.json({ error: 'Send JSON: {"maxAgentsCap": 12, "defaultMaxAgents": 4}, or null to clear' }, { status: 400 });
+		}
+		if (body === null) return Response.json({ limits: await sandbox.setAgentLimits(null) });
+		const positive = (value: unknown) => (typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 128 ? value : undefined);
+		const limits: AgentLimits = {};
+		if (body.maxAgentsCap !== undefined) limits.maxAgentsCap = positive(body.maxAgentsCap);
+		if (body.defaultMaxAgents !== undefined) limits.defaultMaxAgents = positive(body.defaultMaxAgents);
+		if (Object.values(limits).some((value) => value === undefined) || Object.keys(limits).length === 0) {
+			return Response.json({ error: "maxAgentsCap and defaultMaxAgents must be whole numbers from 1 to 128" }, { status: 400 });
+		}
+		return Response.json({ limits: await sandbox.setAgentLimits(limits), note: "Applies to this user's next request; no restart needed." });
+	}
 	if (action === "selftest") {
 		const results = await sandbox.selfTest(id, url.origin);
 		return Response.json({ ok: Object.values(results).every((r) => r.ok), results });
@@ -337,4 +382,20 @@ export async function handleAdminRoute<E extends RouteEnv>(request: Request, env
 	}
 	await sandbox.restartRuntime();
 	return Response.json({ restarted: id });
+}
+
+async function handleGateRoute<E extends RouteEnv>(request: Request, env: E, deps: RouteDeps<E>): Promise<Response> {
+	if (!adminAuthorized(request, env)) return Response.json({ error: "Unauthorized" }, { status: 401 });
+	const gate = deps.gate?.(env);
+	if (!gate) return Response.json({ error: "No ai& gate bound" }, { status: 501 });
+	if (request.method === "GET") return Response.json(await gate.stats());
+	if (request.method !== "POST") return Response.json({ error: "Method not allowed" }, { status: 405 });
+	const body = (await request.json().catch(() => undefined)) as { concurrency?: unknown; resetStats?: unknown } | null | undefined;
+	if (body === null) return Response.json(await gate.setLimit(null));
+	if (body?.resetStats === true) return Response.json(await gate.resetStats());
+	const value = body?.concurrency;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 100_000) {
+		return Response.json({ error: 'Send {"concurrency": <whole number, 0 = off>}, {"resetStats": true} or null.' }, { status: 400 });
+	}
+	return Response.json({ ...((await gate.setLimit(value)) as object), note: "Applies immediately to every employee." });
 }

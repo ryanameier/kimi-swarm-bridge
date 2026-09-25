@@ -4,9 +4,25 @@ import { join } from 'node:path';
 
 type JsonRecord = Record<string, unknown>;
 
+/** Token usage from Kimi `usage.record` wire records. */
+export interface TokenUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+}
+
+/** Prices in USD per million tokens (ai& `/v1/models` fields). */
+export interface ModelPricing {
+  inputPer1M: number;
+  outputPer1M: number;
+  cachedInputPer1M: number;
+}
+
 export interface InferenceEvidence {
   agentId: string;
   requestCount: number;
+  usage: TokenUsage;
   providers: string[];
   models: string[];
   modelAliases: string[];
@@ -27,12 +43,43 @@ export interface SwarmEvidence {
   completedWorkerCount: number;
   coordinator?: InferenceEvidence;
   workers: SwarmWorkerEvidence[];
+  /** Coordinator plus all workers. */
+  totalUsage?: TokenUsage & { requestCount: number; estimatedCostUsd?: number };
   unavailableReason?: 'session_wire_not_found' | 'wire_read_failed';
 }
 
 export interface ReadSwarmEvidenceInput {
   kimiCodeHome?: string;
   sessionId: string;
+  /** Prices by model id; each agent is priced by the model its requests used. */
+  prices?: Map<string, ModelPricing>;
+}
+
+const EMPTY_USAGE: TokenUsage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
+
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function sumUsage(records: JsonRecord[]): TokenUsage {
+  const total = { ...EMPTY_USAGE };
+  for (const record of records) {
+    if (record.type !== 'usage.record' || !isRecord(record.usage)) continue;
+    total.inputTokens += num(record.usage.inputOther);
+    total.cachedInputTokens += num(record.usage.inputCacheRead);
+    total.cacheWriteTokens += num(record.usage.inputCacheCreation);
+    total.outputTokens += num(record.usage.output);
+  }
+  return total;
+}
+
+export function estimateCostUsd(usage: TokenUsage, pricing: ModelPricing): number {
+  const cost =
+    ((usage.inputTokens + usage.cacheWriteTokens) * pricing.inputPer1M +
+      usage.cachedInputTokens * pricing.cachedInputPer1M +
+      usage.outputTokens * pricing.outputPer1M) /
+    1_000_000;
+  return Math.round(cost * 10_000) / 10_000;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -68,6 +115,7 @@ function summarizeInference(records: JsonRecord[], fallbackAgentId: string): Inf
   return {
     agentId: typeof agentId === 'string' ? agentId : fallbackAgentId,
     requestCount: requests.length,
+    usage: sumUsage(records),
     providers: strings('provider'),
     models: strings('model'),
     modelAliases: strings('modelAlias'),
@@ -170,8 +218,14 @@ export async function readSwarmEvidence(input: ReadSwarmEvidenceInput): Promise<
     }
   }
 
+  // Workers are the agent directories next to `main`, plus any the AgentSwarm result names.
+  const agentDirs = (await readdir(agentsDir, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isDirectory() && entry.name !== 'main')
+    .map((entry) => entry.name);
+  const workerIds = [...new Set([...workerOutcomes.keys(), ...agentDirs])].sort();
+
   const workers: SwarmWorkerEvidence[] = [];
-  for (const agentId of [...workerOutcomes.keys()].sort()) {
+  for (const agentId of workerIds) {
     let records: JsonRecord[] = [];
     try {
       records = await parseJsonLines(join(agentsDir, agentId, 'wire.jsonl'));
@@ -185,6 +239,36 @@ export async function readSwarmEvidence(input: ReadSwarmEvidenceInput): Promise<
     });
   }
 
+  const coordinator = summarizeInference(mainRecords, 'main');
+  const everyone = [coordinator, ...workers];
+  const usage = everyone.reduce<TokenUsage>((total, agent) => ({
+    inputTokens: total.inputTokens + agent.usage.inputTokens,
+    cachedInputTokens: total.cachedInputTokens + agent.usage.cachedInputTokens,
+    cacheWriteTokens: total.cacheWriteTokens + agent.usage.cacheWriteTokens,
+    outputTokens: total.outputTokens + agent.usage.outputTokens,
+  }), { ...EMPTY_USAGE });
+  let estimatedCostUsd: number | undefined;
+  if (input.prices) {
+    estimatedCostUsd = 0;
+    for (const agent of everyone) {
+      const pricing = agent.models.map((model) => input.prices!.get(model)).find(Boolean);
+      if (!pricing) {
+        if (agent.requestCount > 0) {
+          estimatedCostUsd = undefined;
+          break;
+        }
+        continue;
+      }
+      estimatedCostUsd += estimateCostUsd(agent.usage, pricing);
+    }
+    if (estimatedCostUsd !== undefined) estimatedCostUsd = Math.round(estimatedCostUsd * 10_000) / 10_000;
+  }
+  const totalUsage = {
+    requestCount: everyone.reduce((count, agent) => count + agent.requestCount, 0),
+    ...usage,
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
+
   return {
     available: true,
     source: 'kimi_wire_v1',
@@ -193,7 +277,37 @@ export async function readSwarmEvidence(input: ReadSwarmEvidenceInput): Promise<
     requestedWorkerCount,
     workerCount: workers.length,
     completedWorkerCount: workers.filter((worker) => worker.outcome === 'completed').length,
-    coordinator: summarizeInference(mainRecords, 'main'),
+    coordinator,
     workers,
+    totalUsage,
   };
+}
+
+/**
+ * Why the session's most recent turn failed, from Kimi's `turn.ended` wire
+ * record (for example "Insufficient credits" from the model provider), so a
+ * failed task can be explained instead of only reported as failed.
+ */
+export async function readFailureReason(input: { kimiCodeHome?: string; sessionId: string }): Promise<string | undefined> {
+  const kimiCodeHome = input.kimiCodeHome ?? join(homedir(), '.kimi-code');
+  const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
+  if (!agentsDir) return undefined;
+  let records: JsonRecord[];
+  try {
+    records = await parseJsonLines(join(agentsDir, 'main', 'wire.jsonl'));
+  } catch {
+    return undefined;
+  }
+  const lastEnd = [...records].reverse().find((record) => record.type === 'turn.ended');
+  if (!lastEnd || lastEnd.reason !== 'failed') return undefined;
+  return describeError(lastEnd.error) ?? 'Kimi reported a failed turn without details.';
+}
+
+function describeError(error: unknown): string | undefined {
+  if (typeof error === 'string') return error.slice(0, 1000);
+  if (!isRecord(error)) return undefined;
+  const message = typeof error.message === 'string' ? error.message : undefined;
+  const code = typeof error.code === 'string' ? error.code : undefined;
+  const detail = message ?? JSON.stringify(error);
+  return (code && message ? `${code}: ${message}` : detail).slice(0, 1000);
 }

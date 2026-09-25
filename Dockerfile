@@ -23,7 +23,7 @@ FROM node:22.19-bookworm-slim AS base
 ENV NODE_ENV=production
 ENV KIMI_CODE_HOME=/data/kimi-code
 ENV KIMI_SERVER_URL=http://127.0.0.1:58627
-ENV KIMI_MODEL_NAME=moonshotai/kimi-k3
+ENV KIMI_MODEL_NAME=zai-org/glm-5.3
 ENV KIMI_MODEL_PROVIDER_TYPE=openai
 ENV KIMI_MODEL_BASE_URL=https://api.aiand.com/v1
 ENV KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY=4
@@ -68,6 +68,9 @@ RUN pnpm install --prod --frozen-lockfile
 
 COPY --from=build /app/dist ./dist
 COPY supervisor.mjs ./supervisor.mjs
+# Joins AgentSwarm section files into one document (used by the swarm prompt).
+RUN printf '#!/bin/sh\nexec node /app/dist/assemble-sections.js "$@"\n' > /usr/local/bin/kimi-assemble \
+    && chmod 755 /usr/local/bin/kimi-assemble
 
 RUN mkdir -p \
       /data/kimi-code \
@@ -113,9 +116,9 @@ RUN apt-get update \
        squashfuse \
     && rm -rf /var/lib/apt/lists/*
 
-# Public Internet tools for Kimi workers. The supervisor registers it in
-# $KIMI_CODE_HOME/mcp.json when FIRECRAWL_API_KEY is provided.
-RUN npm install --global firecrawl-mcp@3.25.4
+# Web research tools (web_search, read_page) ship in /app/dist/web-tools.js;
+# JavaScript-heavy pages are rendered by Cloudflare Browser Rendering.
+ENV KIMI_BROWSER_RENDERING=1
 
 COPY --from=cloudflare-sandbox /container-server /container-server
 

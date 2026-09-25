@@ -6,15 +6,17 @@
 //
 // Re-runnable: existing KV namespaces, buckets and secrets are reused. Values can
 // be supplied as environment variables instead of prompts:
-//   AIAND_API_KEY, FIRECRAWL_API_KEY ("disabled" to skip web tools),
+//   AIAND_API_KEY, BRAVE_API_KEY (web search; "disabled" to skip),
 //   ACCESS_TEAM (team name or <team>.cloudflareaccess.com),
 //   ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, KIMI_WORKER_NAME,
 //   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp),
-//   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 4),
-//   KIMI_MAX_AGENTS_CAP (highest agent ceiling users may set, default 32),
-//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 4),
+//   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 20),
+//   KIMI_MAX_AGENTS_CAP (highest agent ceiling users may set, default 20),
+//   KIMI_MODEL (default ai& model, default zai-org/glm-5.3; users can switch from chat),
+//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 20; Kimi uses fewer when a task needs fewer),
 //   KIMI_DAILY_REQUEST_LIMIT (ai& model requests per employee per day, 0 = unlimited, default 3000),
-//   KIMI_EGRESS_MODE (open | log | allowlist, default open), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
+//   KIMI_AIAND_CONCURRENCY (ai& model requests in flight for the whole organization, your ai& limit; 0 = off, default 100),
+//   KIMI_EGRESS_MODE (open | log | allowlist, default log), KIMI_EGRESS_ALLOWLIST (comma-separated hosts, * globs)
 // Flags: --dry-run, --rotate-internal (new BRIDGE/COOKIE/ADMIN secrets), --yes (no prompts).
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -26,7 +28,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const TEMPLATE = join(ROOT, 'wrangler.jsonc');
-const DEPLOY_CONFIG = join(ROOT, 'wrangler.deploy.jsonc');
+// The default deployment uses wrangler.deploy.jsonc; others get wrangler.<name>.deploy.jsonc
+// so several deployments (for example a pilot) can live side by side.
+let DEPLOY_CONFIG = join(ROOT, 'wrangler.deploy.jsonc');
 const KV_TITLE = 'OAUTH_KV';
 const INTERNAL_SECRETS = ['BRIDGE_TOKEN', 'COOKIE_ENCRYPTION_KEY', 'ADMIN_TOKEN'];
 
@@ -139,6 +143,7 @@ async function main() {
   const namespaces = wrangler(['kv', 'namespace', 'list'], { json: true }) ?? [];
   // Each deployment gets its own storage; the default worker name keeps the original names.
   const isDefault = workerName === template.name;
+  if (!isDefault) DEPLOY_CONFIG = join(ROOT, `wrangler.${workerName}.deploy.jsonc`);
   const kvTitle = `${workerName}-${KV_TITLE}`;
   let kv = namespaces.find((n) => n.title === kvTitle) ?? (isDefault ? namespaces.find((n) => n.title === KV_TITLE) : undefined);
   if (kv) {
@@ -180,7 +185,7 @@ async function main() {
   }
 
   // 3. Deploy config (account-specific, git-ignored)
-  step(3, 'Writing wrangler.deploy.jsonc');
+  step(3, `Writing ${DEPLOY_CONFIG.slice(ROOT.length + 1)}`);
   const config = { ...template, name: workerName };
   config.kv_namespaces = [{ binding: 'OAUTH_KV', id: kv?.id ?? '<created on a real run>' }];
   config.r2_buckets = [{ binding: 'BACKUP_BUCKET', bucket_name: bucketName }];
@@ -203,17 +208,21 @@ async function main() {
   const pick = (name) => previousVars[name] ?? config.vars?.[name];
   config.vars = {
     ...config.vars,
-    SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 4),
-    MAX_AGENTS_CAP: intVar('KIMI_MAX_AGENTS_CAP', pick('MAX_AGENTS_CAP') ?? 32),
-    DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 4),
+    SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 20),
+    MAX_AGENTS_CAP: intVar('KIMI_MAX_AGENTS_CAP', pick('MAX_AGENTS_CAP') ?? 20),
+    AIAND_MODEL: process.env.KIMI_MODEL?.trim() || pick('AIAND_MODEL') || 'zai-org/glm-5.3',
+    DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 20),
     AIAND_DAILY_REQUEST_LIMIT: countVar('KIMI_DAILY_REQUEST_LIMIT', pick('AIAND_DAILY_REQUEST_LIMIT') ?? 3000),
-    EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'open',
+    AIAND_CONCURRENCY_LIMIT: countVar('KIMI_AIAND_CONCURRENCY', pick('AIAND_CONCURRENCY_LIMIT') ?? 100),
+    EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'log',
     EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
   };
   if (!['open', 'log', 'allowlist'].includes(config.vars.EGRESS_MODE)) fail('KIMI_EGRESS_MODE must be open, log or allowlist.');
   ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
   const limit = config.vars.AIAND_DAILY_REQUEST_LIMIT;
-  ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Firecrawl only'})` : ''}`);
+  ok(`default model: ${config.vars.AIAND_MODEL}`);
+  ok(`ai& requests in flight for the whole organization: ${config.vars.AIAND_CONCURRENCY_LIMIT === '0' ? 'no limit' : `at most ${config.vars.AIAND_CONCURRENCY_LIMIT}`} (set KIMI_AIAND_CONCURRENCY to your ai& limit)`);
+  ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Brave Search only'})` : ''}`);
 
   // Where employee containers may run (data residency / latency).
   const REGIONS = ['ENAM', 'WNAM', 'EEUR', 'WEUR', 'APAC', 'SAM', 'ME', 'OC', 'AFR'];
@@ -294,18 +303,21 @@ async function main() {
     ok('ai& key already set');
   }
 
-  if (process.env.FIRECRAWL_API_KEY || !existing.has('FIRECRAWL_API_KEY')) {
-    const key = process.env.FIRECRAWL_API_KEY || await ask('Firecrawl API key (Enter to disable web tools)', { secret: true }) || 'disabled';
+  if (process.env.BRAVE_API_KEY || !existing.has('BRAVE_API_KEY')) {
+    console.log('  Web search uses the Brave Search API (https://brave.com/search/api/, free monthly credit).');
+    const key = process.env.BRAVE_API_KEY || await ask('Brave Search API key (Enter to disable web search)', { secret: true }) || 'disabled';
     if (key !== 'disabled') {
-      const probe = await fetch('https://api.firecrawl.dev/v2/team/credit-usage', { headers: { authorization: `Bearer ${key}` } });
-      if (!probe.ok) fail(`Firecrawl rejected the key (HTTP ${probe.status}).`);
-      ok('Firecrawl key works');
+      const probe = await fetch('https://api.search.brave.com/res/v1/web/search?q=test&count=1', {
+        headers: { accept: 'application/json', 'x-subscription-token': key },
+      });
+      if (!probe.ok) fail(`Brave rejected the key (HTTP ${probe.status}).`);
+      ok('Brave Search key works');
     } else {
-      ok('web tools disabled (set FIRECRAWL_API_KEY later to enable)');
+      ok('web search disabled (set BRAVE_API_KEY later to enable; reading pages still works)');
     }
-    secrets.FIRECRAWL_API_KEY = key;
+    secrets.BRAVE_API_KEY = key;
   } else {
-    ok('Firecrawl key already set');
+    ok('Brave Search key already set');
   }
 
   let adminToken;
@@ -335,8 +347,14 @@ async function main() {
     if (deploy.status !== 0) {
       fail('Deploy failed. Containers need the Workers Paid plan (Workers & Pages → Plans); R2 and Zero Trust must be enabled.');
     }
-    const health = await fetch(`${origin}/.well-known/oauth-authorization-server`);
-    if (!health.ok) fail(`Deployed, but ${origin} is not answering yet (HTTP ${health.status}). Try again in a minute.`);
+    // A new workers.dev address can take a minute or two to start answering.
+    let health;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      health = await fetch(`${origin}/.well-known/oauth-authorization-server`).catch(() => undefined);
+      if (health?.ok) break;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    if (!health?.ok) fail(`Deployed, but ${origin} is not answering yet (HTTP ${health?.status ?? 'no response'}). Try again in a few minutes.`);
     ok(`live at ${origin}`);
   }
 
@@ -350,6 +368,15 @@ async function main() {
      "Package managers only", then add ${bold(`*.${subdomain}.workers.dev`)} under Additional allowed domains.
   3. Each employee clicks Connect and signs in through Access.
   Guide: docs/cloudflare-deploy.md`);
+
+  // Employee guide with this deployment's details filled in, ready to send.
+  if (!DRY_RUN) {
+    const guide = readFileSync(new URL('../../docs/using-kimi-swarm.md', import.meta.url), 'utf8');
+    const header = `> **Your Kimi Swarm details**\n> - Connector URL (your admin adds it): ${origin}/mcp\n> - Domain to allow (only for personal Claude Pro/Max accounts, step 3 below): \`*.${subdomain}.workers.dev\`\n\n`;
+    const guidePath = new URL(`../employee-guide.${workerName}.md`, import.meta.url);
+    writeFileSync(guidePath, guide.replace(/\n\n/, `\n\n${header}`));
+    console.log(`  Employee guide with these details filled in: ${bold(`cloudflare/employee-guide.${workerName}.md`)}`);
+  }
 
   if (adminToken && !DRY_RUN) {
     console.log(`
