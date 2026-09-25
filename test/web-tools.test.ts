@@ -72,3 +72,33 @@ describe('read_page', () => {
     expect(degraded).toContain('[reader unavailable: Reader model failed: HTTP 500');
   });
 });
+
+describe('batched tools', () => {
+  it('runs several searches and page reads in one call', async () => {
+    const { createWebToolsServer } = await import('../src/web-tools.js');
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://api.search.brave.com')) {
+        const q = new URL(url).searchParams.get('q');
+        return jsonResponse({ web: { results: [{ title: `T ${q}`, url: `https://${q}.example`, description: 'd' }] } });
+      }
+      if (url.includes('chat/completions')) return jsonResponse({ choices: [{ message: { content: 'fact' } }] });
+      return new Response(html, { headers: { 'content-type': 'text/html' } });
+    });
+    const server = createWebToolsServer({ BRAVE_API_KEY: 'k', KIMI_MODEL_BASE_URL: 'https://api.aiand.com/v1', KIMI_MODEL_API_KEY: 'k' }, fetchMock as unknown as typeof fetch);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(a);
+    const client = new Client({ name: 't', version: '1' });
+    await client.connect(b);
+    const search = await client.callTool({ name: 'web_search', arguments: { queries: ['alpha', 'beta'] } });
+    const searchText = (search.content as Array<{ text: string }>)[0].text;
+    expect(searchText).toContain('## alpha');
+    expect(searchText).toContain('https://beta.example');
+    const read = await client.callTool({ name: 'read_page', arguments: { pages: [{ url: 'https://a.example', question: 'q1' }, { url: 'https://b.example', question: 'q2' }] } });
+    const readText = (read.content as Array<{ text: string }>)[0].text;
+    expect(readText.split('---')).toHaveLength(2);
+    expect(readText).toContain('Source: https://b.example');
+    await client.close();
+  });
+});

@@ -1,5 +1,5 @@
 import type { BridgeConfig } from './config.js';
-import { buildContinuationPrompt, buildDelegationPrompt } from './prompt.js';
+import { buildContinuationPrompt, buildDelegationPrompt, RESEARCH_DEPTHS, type ResearchDepth } from './prompt.js';
 import { loadSwarmLimits } from './swarm-settings.js';
 import type { KimiHandoff } from './handoff.js';
 import type { KimiClient } from './kimi/client.js';
@@ -41,6 +41,7 @@ export interface DelegateTaskInput {
   sessionId?: string;
   model?: string;
   thinking?: string;
+  depth?: ResearchDepth;
 }
 
 export interface DelegateAndWaitInput extends DelegateTaskInput {
@@ -80,6 +81,7 @@ export interface ContinueTaskInput {
   swarmMode?: boolean;
   model?: string;
   thinking?: string;
+  depth?: ResearchDepth;
 }
 
 export interface GetDiffInput {
@@ -237,6 +239,12 @@ async function resolveModel(
     throw new Error('No model specified. Pass model in the MCP call, set KIMI_MODEL, or configure default_model in Kimi server.');
   }
   return model;
+}
+
+/** Deployment default research depth (KIMI_RESEARCH_DEPTH), standard unless set. */
+function defaultDepth(): ResearchDepth {
+  const value = process.env.KIMI_RESEARCH_DEPTH?.trim();
+  return (RESEARCH_DEPTHS as readonly string[]).includes(value ?? '') ? value as ResearchDepth : 'standard';
 }
 
 /** Prices by model id for cost estimates; undefined when the catalog is unavailable. */
@@ -862,6 +870,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
           swarmLimits: loadSwarmLimits(deps.config.stateDir),
+          depth: input.depth ?? defaultDepth(),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1146,6 +1155,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
         swarmLimits: loadSwarmLimits(deps.config.stateDir),
+        depth: input.depth ?? defaultDepth(),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],

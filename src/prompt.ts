@@ -5,11 +5,32 @@ export interface PromptContext {
   workspaceFiles?: boolean;
   /** AgentSwarm ceiling and simultaneous-worker limit for this user. */
   swarmLimits?: { maxAgents: number; concurrency: number };
+  /** How thorough research should be (default standard). */
+  depth?: ResearchDepth;
 }
 
-function swarmLimitText(limits: PromptContext['swarmLimits']): string {
+export type ResearchDepth = 'quick' | 'standard' | 'deep';
+export const RESEARCH_DEPTHS = ['quick', 'standard', 'deep'] as const;
+
+const DEPTH_TEXT: Record<ResearchDepth, string> = {
+  quick: 'use one authoritative source per item (official docs first), answer each requested point in a line, and write "not documented" instead of searching further',
+  standard: 'use one or two authoritative sources per item (official docs first), answer each requested point briefly, and when a detail is still missing after one batch of searches and reads, write "not documented" and move on',
+  deep: 'be thorough: cross-check important figures across several sources, keep notes under /tmp/notes as you go, and follow up on gaps',
+};
+
+function depthOf(context: PromptContext): ResearchDepth {
+  return context.depth ?? 'standard';
+}
+
+function swarmLimitText(limits: PromptContext['swarmLimits'], depth: ResearchDepth = 'standard'): string {
   if (!limits) return '';
-  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Every worker adds cost because it re-reads its full context on every step, so give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. Tell each worker to save its findings to a notes file under /tmp/notes as it goes (its working context is summarized automatically when it grows) and to return a concise summary with sources rather than raw page content. For web research, tell workers to find sources with web_search and read them with read_page, always passing a specific question so only the relevant facts come back, and never to sleep or wait out rate limits (the tools retry on their own). AgentSwarm items must be plain strings (one short scope description per worker). At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+  return `Worker count: use the fewest AgentSwarm workers that do this task well, never more than ${limits.maxAgents}. This overrides any default guidance to maximize or finely split agents. Give each worker a substantial scope (group related items into one worker) and do not use AgentSwarm for small or tightly coupled work. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+Speed: start AgentSwarm right away unless the split is genuinely unclear. AgentSwarm items must be plain strings (one short scope description per worker). Tell each worker to:
+- batch its actions: pass several queries to one web_search call and several pages to one read_page call (each page with a specific question) instead of one per step;
+- for research depth "${depth}": ${DEPTH_TEXT[depth]};
+- never sleep or wait out rate limits (the tools retry on their own);
+- when the deliverable is a document, write its own finished section(s) to /workspace/outputs/.sections/<NN>-<topic>.md and return only a short summary.
+Then assemble the sections with one shell command (for example cat) and write only the parts that need the whole picture (summary table, recommendations) yourself; delete /workspace/outputs/.sections afterwards.
 `;
 }
 
@@ -17,7 +38,7 @@ const WORKSPACE_FILES = `
 Files:
 Files shared by the user are in /workspace/inputs. Save every deliverable the user should receive in /workspace/outputs (create it if needed, use clear file names, do not overwrite inputs) and list those paths in the handoff.
 Files in /workspace persist between sessions, but installed dependencies and caches (node_modules, .venv, __pycache__, .cache) do not; reinstall them when missing.
-Web research: use web_search to find sources and read_page with a specific question to extract facts (it returns a short answer instead of the whole page). Do not sleep or poll to wait out rate limits.
+Web research: use web_search to find sources and read_page with a specific question to extract facts (it returns a short answer instead of the whole page). Batch: pass several queries or pages in one call. Do not sleep or poll to wait out rate limits.
 `;
 
 export interface DelegationPromptInput extends PromptContext {
@@ -62,7 +83,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-${swarmLimitText(input.swarmLimits)}
+${swarmLimitText(input.swarmLimits, depthOf(input))}
 When complete, return a handoff with:
 - files changed
 - implementation summary
@@ -96,7 +117,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-${swarmLimitText(input.swarmLimits)}
+${swarmLimitText(input.swarmLimits, depthOf(input))}
 When complete, return a handoff with:
 - files changed
 - implementation summary

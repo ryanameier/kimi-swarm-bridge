@@ -197,36 +197,48 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
   server.registerTool(
     'web_search',
     {
-      description: 'Search the web. Returns titles, URLs and snippets.',
+      description: 'Search the web. Pass several queries at once to run them in parallel. Returns titles, URLs and snippets.',
       inputSchema: {
-        query: z.string().min(1),
-        count: z.number().int().min(1).max(20).optional().describe('Results, default 8'),
+        queries: z.array(z.string().min(1)).min(1).max(10).optional(),
+        query: z.string().min(1).optional(),
+        count: z.number().int().min(1).max(20).optional().describe('Results per query, default 6'),
       },
     },
-    async ({ query, count }) => {
-      try {
-        return text(formatResults(await braveSearch(query, count ?? 8, env, fetchImpl)));
-      } catch (error) {
-        return failure(error);
-      }
+    async ({ queries, query, count }) => {
+      const all = [...(queries ?? []), ...(query ? [query] : [])];
+      if (all.length === 0) return failure(new Error('Pass query or queries.'));
+      const sections = await Promise.all(all.map(async (q) => {
+        try {
+          return `## ${q}\n${formatResults(await braveSearch(q, count ?? 6, env, fetchImpl))}`;
+        } catch (error) {
+          return `## ${q}\nSearch failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }));
+      return text(sections.join('\n\n'));
     },
   );
 
   server.registerTool(
     'read_page',
     {
-      description: 'Read a web page. With a question, returns only the relevant facts (fast, small); without one, returns the start of the page text.',
+      description: 'Read web pages. Pass several pages at once to read them in parallel. With a question, returns only the relevant facts (fast, small); without one, returns the start of the page text.',
       inputSchema: {
-        url: z.string().url(),
-        question: z.string().optional().describe('What to extract from the page'),
+        pages: z.array(z.object({ url: z.string().url(), question: z.string().optional() })).min(1).max(10).optional(),
+        url: z.string().url().optional(),
+        question: z.string().optional().describe('What to extract (single-page form)'),
       },
     },
-    async ({ url, question }) => {
-      try {
-        return text(await readPage({ url, question }, env, fetchImpl));
-      } catch (error) {
-        return failure(error);
-      }
+    async ({ pages, url, question }) => {
+      const all = [...(pages ?? []), ...(url ? [{ url, question }] : [])];
+      if (all.length === 0) return failure(new Error('Pass url or pages.'));
+      const results = await Promise.all(all.map(async (page) => {
+        try {
+          return await readPage(page, env, fetchImpl);
+        } catch (error) {
+          return `Source: ${page.url}\n[failed: ${error instanceof Error ? error.message : String(error)}]`;
+        }
+      }));
+      return text(results.join('\n\n---\n\n'));
     },
   );
 
