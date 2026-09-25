@@ -2,6 +2,7 @@ import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import { getSandbox, Sandbox, type DirectoryBackup } from "@cloudflare/sandbox";
 import { handleAccessRequest } from "./access-handler";
 import type { Props } from "./workers-oauth-utils";
+import { cachedSnapshot, planSessionRequest, readRpcResult, saveSnapshot, snapshotKey, snapshotResponse } from "./mcp-session";
 import { AIAND_PLACEHOLDER, CREDENTIAL_HOSTS, FIRECRAWL_PLACEHOLDER, egressMode, type ModelBudgetResult } from "./egress";
 
 // Outbound interception entrypoint: attaches API keys, enforces budgets and egress policy.
@@ -18,7 +19,21 @@ const MAX_UNATTENDED_BUSY_MS = 6 * 60 * 60 * 1000;
 const PERSISTED_DIRS = ["/home/kimi", "/workspace"] as const;
 const STATE_DIR = "/home/kimi";
 const BACKUP_TTL_SECONDS = 90 * 24 * 60 * 60;
-const BACKUP_EXCLUDES = ["node_modules/.cache", "*.part-*"];
+// Reinstallable dependencies and caches are not persisted (Kimi is told to reinstall them).
+const BACKUP_EXCLUDES = [
+	"node_modules",
+	".venv",
+	"__pycache__",
+	"*.pyc",
+	".cache",
+	".pytest_cache",
+	".mypy_cache",
+	".next",
+	"*.part-*",
+];
+// du excludes matching BACKUP_EXCLUDES, used to size a directory before backing it up.
+const DU_EXCLUDES = BACKUP_EXCLUDES.map((pattern) => `--exclude='${pattern}'`).join(" ");
+const DEFAULT_BACKUP_MAX_MB = 4096;
 
 // Tool calls that create or change jobs. The job registry is backed up before
 // kimi_delegate_task / kimi_continue_task acknowledgements reach the client.
@@ -124,13 +139,17 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.stop();
 	}
 
-	async backupStatus(): Promise<{ lastBackupAt: number | null; backups: Record<string, string> }> {
+	async backupStatus(): Promise<{ lastBackupAt: number | null; backups: Record<string, string>; skipped: unknown }> {
 		const backups: Record<string, string> = {};
 		for (const dir of PERSISTED_DIRS) {
 			const handle = await this.ctx.storage.get<DirectoryBackup>(`backup:${dir}`);
 			if (handle) backups[dir] = handle.id;
 		}
-		return { lastBackupAt: (await this.ctx.storage.get<number>("lastBackupAt")) ?? null, backups };
+		return {
+			lastBackupAt: (await this.ctx.storage.get<number>("lastBackupAt")) ?? null,
+			backups,
+			skipped: (await this.ctx.storage.get("backupSkipped")) ?? null,
+		};
 	}
 
 	/**
@@ -229,6 +248,16 @@ export class KimiSandbox extends Sandbox<Env> {
 		this.egressConfigured = true;
 	}
 
+	private async directorySizeMb(dir: string): Promise<number | null> {
+		try {
+			const result = await this.exec(`du -sm ${DU_EXCLUDES} ${dir} 2>/dev/null | cut -f1`);
+			const size = Number.parseInt(`${result.stdout}`.trim(), 10);
+			return Number.isFinite(size) ? size : null;
+		} catch {
+			return null;
+		}
+	}
+
 	private async bridgeHealthy(): Promise<boolean> {
 		try {
 			const result = await this.exec(`curl -sf -m 3 http://127.0.0.1:${BRIDGE_PORT}/healthz`);
@@ -281,7 +310,18 @@ export class KimiSandbox extends Sandbox<Env> {
 	}
 
 	private async runBackup(dirs: readonly string[]): Promise<void> {
+		const maxMb = Number.parseInt(this.env.BACKUP_MAX_MB ?? "", 10) || DEFAULT_BACKUP_MAX_MB;
+		const skipped: string[] = [];
 		for (const dir of dirs) {
+			// The state directory is small and holds the job registry; always back it up.
+			if (dir !== STATE_DIR) {
+				const sizeMb = await this.directorySizeMb(dir);
+				if (sizeMb !== null && sizeMb > maxMb) {
+					console.error(`backup of ${dir} skipped: ${sizeMb} MB exceeds BACKUP_MAX_MB=${maxMb}`);
+					skipped.push(`${dir} (${sizeMb} MB > ${maxMb} MB)`);
+					continue;
+				}
+			}
 			const handle = await this.createBackup({
 				dir,
 				name: `${dir.replace(/\//g, "_")}-${new Date().toISOString()}`,
@@ -291,6 +331,8 @@ export class KimiSandbox extends Sandbox<Env> {
 			});
 			await this.ctx.storage.put(`backup:${dir}`, handle);
 		}
+		if (skipped.length) await this.ctx.storage.put("backupSkipped", { at: Date.now(), dirs: skipped });
+		else if (dirs.length === PERSISTED_DIRS.length) await this.ctx.storage.delete("backupSkipped");
 		await this.ctx.storage.put("lastBackupAt", Date.now());
 	}
 }
@@ -319,10 +361,16 @@ function calledTools(body: string): string[] {
 	}
 }
 
-function forwardHeaders(request: Request, env: Env): Headers {
+function forwardHeaders(request: Request, env: Env, clientName?: string): Headers {
 	const headers = new Headers(request.headers);
 	headers.set("authorization", `Bearer ${env.BRIDGE_TOKEN}`);
 	headers.delete("cookie");
+	if (clientName !== undefined) {
+		// The Worker owns MCP sessions; the container serves each request statelessly.
+		headers.delete("mcp-session-id");
+		headers.set("x-kimi-mcp-mode", "stateless");
+		headers.set("x-kimi-client-name", clientName);
+	}
 	return headers;
 }
 
@@ -337,22 +385,42 @@ const mcpHandler = {
 			return new Response("Unauthorized", { status: 401 });
 		}
 
+		const body = request.method === "POST" ? await request.text() : undefined;
+		const action = planSessionRequest(request.method, request.headers.get("mcp-session-id"), body);
+		if (action.kind === "respond") return action.response;
+
 		const sandboxId = await sandboxIdFor(props.login);
 		const sandbox = getSandbox(env.KIMI_SANDBOX, sandboxId, { sleepAfter: SANDBOX_SLEEP_AFTER });
-
-		try {
+		const toContainer = async (payload: string | undefined) => {
 			await sandbox.ensureRuntime(sandboxId, new URL(request.url).origin);
+			return sandbox.containerFetch(
+				new Request(`http://container/mcp`, { method: "POST", headers: forwardHeaders(request, env, action.clientName), body: payload }),
+				BRIDGE_PORT,
+			);
+		};
+
+		// Handshake and tool list: answer from the snapshot without waking the container.
+		if (action.kind === "snapshot") {
+			const key = snapshotKey(env.CF_VERSION_METADATA?.id ?? "dev", action);
+			let result = await cachedSnapshot(env.OAUTH_KV, key);
+			if (result === undefined) {
+				try {
+					result = await readRpcResult(await toContainer(body));
+				} catch (error) {
+					return jsonRpcError(503, `Kimi runtime unavailable: ${String(error)}`);
+				}
+				await saveSnapshot(env.OAUTH_KV, key, result);
+			}
+			return snapshotResponse(action, result);
+		}
+
+		const tools = body ? calledTools(body) : [];
+		let response: Response;
+		try {
+			response = await toContainer(body);
 		} catch (error) {
 			return jsonRpcError(503, `Kimi runtime unavailable: ${String(error)}`);
 		}
-
-		const body = request.method === "POST" ? await request.text() : undefined;
-		const tools = body ? calledTools(body) : [];
-
-		const response = await sandbox.containerFetch(
-			new Request(`http://container/mcp`, { method: request.method, headers: forwardHeaders(request, env), body }),
-			BRIDGE_PORT,
-		);
 
 		if (tools.some((name) => JOB_ACK_TOOLS.has(name)) && response.ok) {
 			// Persist the job record before the client sees the acknowledgement.

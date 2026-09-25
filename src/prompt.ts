@@ -16,6 +16,7 @@ function swarmLimitText(limits: PromptContext['swarmLimits']): string {
 const WORKSPACE_FILES = `
 Files:
 Files shared by the user are in /workspace/inputs. Save every deliverable the user should receive in /workspace/outputs (create it if needed, use clear file names, do not overwrite inputs) and list those paths in the handoff.
+Files in /workspace persist between sessions, but installed dependencies and caches (node_modules, .venv, __pycache__, .cache) do not; reinstall them when missing.
 `;
 
 export interface DelegationPromptInput extends PromptContext {

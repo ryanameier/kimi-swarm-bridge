@@ -110,6 +110,54 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text);
 }
 
+/**
+ * Stateless MCP for fronting proxies that own the session layer (the
+ * Cloudflare Worker answers initialize and tools/list itself so a sleeping
+ * container is not woken, and it survives container restarts). Every request
+ * gets a fresh server; the proxy passes the client name for tool selection.
+ */
+async function handleStatelessRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (req.method !== 'POST') {
+    res.setHeader('allow', 'POST');
+    sendJson(res, 405, { error: 'Method Not Allowed' });
+    return;
+  }
+
+  let body: unknown;
+
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    sendRpcError(
+      res,
+      400,
+      -32700,
+      error instanceof Error ? error.message : 'Invalid JSON',
+    );
+    return;
+  }
+
+  const clientHeader = req.headers['x-kimi-client-name'];
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+  });
+  const mcpServer = createMcpServer({
+    fileTransfer,
+    clientName: typeof clientHeader === 'string' && clientHeader ? clientHeader : undefined,
+  });
+
+  res.on('close', () => {
+    void transport.close();
+    void mcpServer.close();
+  });
+
+  await mcpServer.connect(transport);
+  await transport.handleRequest(req, res, body);
+}
+
 async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -117,6 +165,11 @@ async function handleMcpRequest(
   if (!authorized(req)) {
     res.setHeader('www-authenticate', 'Bearer realm="kimi-swarm-mcp"');
     sendJson(res, 401, { error: 'Unauthorized' });
+    return;
+  }
+
+  if (req.headers['x-kimi-mcp-mode'] === 'stateless') {
+    await handleStatelessRequest(req, res);
     return;
   }
 

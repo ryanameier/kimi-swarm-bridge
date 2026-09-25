@@ -75,8 +75,9 @@ describe('Codex plugin package', () => {
         'kimi_delegate_and_wait',
         'kimi_review_package',
         'kimi_recent_jobs',
+        'kimi_swarm_settings',
       ]));
-      expect(toolNames).toHaveLength(12);
+      expect(toolNames).toHaveLength(13);
     } finally {
       await client.close();
       rmSync(temporaryRoot, { recursive: true, force: true });

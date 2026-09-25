@@ -2983,7 +2983,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve2.call(this, root, ref);
+      let _sch = resolve3.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -3010,7 +3010,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve2(root, ref) {
+    function resolve3(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -3641,55 +3641,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve2(baseURI, relativeURI, options) {
+    function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse3(baseURI, schemelessOptions), parse3(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative, options, skipNormalization) {
+    function resolveComponent(base, relative2, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative = parse3(serialize(relative, options), options);
+        relative2 = parse3(serialize(relative2, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative.scheme) {
-        target.scheme = relative.scheme;
-        target.userinfo = relative.userinfo;
-        target.host = relative.host;
-        target.port = relative.port;
-        target.path = removeDotSegments(relative.path || "");
-        target.query = relative.query;
+      if (!options.tolerant && relative2.scheme) {
+        target.scheme = relative2.scheme;
+        target.userinfo = relative2.userinfo;
+        target.host = relative2.host;
+        target.port = relative2.port;
+        target.path = removeDotSegments(relative2.path || "");
+        target.query = relative2.query;
       } else {
-        if (relative.userinfo !== void 0 || relative.host !== void 0 || relative.port !== void 0) {
-          target.userinfo = relative.userinfo;
-          target.host = relative.host;
-          target.port = relative.port;
-          target.path = removeDotSegments(relative.path || "");
-          target.query = relative.query;
+        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
+          target.userinfo = relative2.userinfo;
+          target.host = relative2.host;
+          target.port = relative2.port;
+          target.path = removeDotSegments(relative2.path || "");
+          target.query = relative2.query;
         } else {
-          if (!relative.path) {
+          if (!relative2.path) {
             target.path = base.path;
-            if (relative.query !== void 0) {
-              target.query = relative.query;
+            if (relative2.query !== void 0) {
+              target.query = relative2.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative.path[0] === "/") {
-              target.path = removeDotSegments(relative.path);
+            if (relative2.path[0] === "/") {
+              target.path = removeDotSegments(relative2.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative.path;
+                target.path = "/" + relative2.path;
               } else if (!base.path) {
-                target.path = relative.path;
+                target.path = relative2.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative.query;
+            target.query = relative2.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -3697,7 +3697,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative.fragment;
+      target.fragment = relative2.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -3899,7 +3899,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve2,
+      resolve: resolve3,
       resolveComponent,
       equal,
       serialize,
@@ -18979,7 +18979,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+        await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -18996,7 +18996,7 @@ var Protocol = class {
    */
   request(request, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -19074,7 +19074,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve2(parseResult.data);
+            resolve3(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -19335,12 +19335,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve2, interval);
+      const timeoutId = setTimeout(resolve3, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -20440,7 +20440,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+      await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -21089,19 +21089,19 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve2();
+        resolve3();
       } else {
-        this._stdout.once("drain", resolve2);
+        this._stdout.once("drain", resolve3);
       }
     });
   }
 };
 
 // src/index.ts
-import { basename, resolve } from "node:path";
+import { basename as basename2, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/tool-catalog.ts
@@ -21915,6 +21915,10 @@ function parsePreflightCacheMs(raw) {
   if (Number.isNaN(parsed) || parsed < 0) return 5e3;
   return parsed;
 }
+function parseMaxWaitMs(raw) {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? void 0 : parsed;
+}
 function resolveServerToken(envToken, kimiCodeHome, homeDir = homedir()) {
   const trimmedEnv = envToken?.trim();
   if (trimmedEnv && trimmedEnv.length > 0) {
@@ -21951,6 +21955,9 @@ function loadBridgeConfig(env = process.env) {
     kimiCommand: env.KIMI_COMMAND && env.KIMI_COMMAND.trim().length > 0 ? env.KIMI_COMMAND.trim() : "kimi",
     preflightCacheMs: parsePreflightCacheMs(env.KIMI_PREFLIGHT_CACHE_MS),
     kimiCodeHome,
+    maxWaitMs: parseMaxWaitMs(env.KIMI_MAX_WAIT_MS),
+    coordinatorName: env.KIMI_COORDINATOR_NAME?.trim() || void 0,
+    workspaceFiles: env.KIMI_WORKSPACE_FILES === "1" || void 0,
     stateDir: env.KIMI_BRIDGE_STATE_DIR && env.KIMI_BRIDGE_STATE_DIR.trim().length > 0 ? env.KIMI_BRIDGE_STATE_DIR.trim() : join2(homedir(), ".codex-kimi-bridge", "state")
   };
 }
@@ -22202,12 +22209,23 @@ var KimiClient = class {
 };
 
 // src/prompt.ts
+function swarmLimitText(limits) {
+  if (!limits) return "";
+  return `Decide how many AgentSwarm workers the task needs (fewer for small or tightly coupled work), never more than ${limits.maxAgents}. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+`;
+}
+var WORKSPACE_FILES = `
+Files:
+Files shared by the user are in /workspace/inputs. Save every deliverable the user should receive in /workspace/outputs (create it if needed, use clear file names, do not overwrite inputs) and list those paths in the handoff.
+Files in /workspace persist between sessions, but installed dependencies and caches (node_modules, .venv, __pycache__, .cache) do not; reinstall them when missing.
+`;
 function list(items) {
   return items.length === 0 ? "- none" : items.map((item) => `- ${item}`).join("\n");
 }
 function buildContinuationPrompt(input) {
   const swarm = input.swarmSuggestions && input.swarmSuggestions.length > 0 ? list(input.swarmSuggestions) : "- Use your judgment; avoid AgentSwarm for small or tightly coupled changes.";
-  return `This is a follow-up to a delegated task in session ${input.sessionId}. Codex has reviewed the work and is providing additional feedback.
+  const coordinator = input.coordinator ?? "Codex";
+  return `This is a follow-up to a delegated task in session ${input.sessionId}. ${coordinator} has reviewed the work and is providing additional feedback.
 
 Implement the requested changes in this repository. Do not change unrelated files.
 
@@ -22217,25 +22235,26 @@ ${input.task}
 Acceptance criteria:
 ${list(input.acceptanceCriteria)}
 
-Plan from Codex:
+Plan from ${coordinator}:
 ${list(input.plan)}
 
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-
+${swarmLimitText(input.swarmLimits)}
 When complete, return a handoff with:
 - files changed
 - implementation summary
 - commands run
 - tests run and results
 - risks or incomplete items
-- anything requiring Codex review
-`;
+- anything requiring ${coordinator} review
+${input.workspaceFiles ? WORKSPACE_FILES : ""}`;
 }
 function buildDelegationPrompt(input) {
   const swarm = input.swarmSuggestions && input.swarmSuggestions.length > 0 ? list(input.swarmSuggestions) : "- Use your judgment; avoid AgentSwarm for small or tightly coupled changes.";
-  return `You are the implementation worker. Codex is the coordinator and reviewer.
+  const coordinator = input.coordinator ?? "Codex";
+  return `You are the implementation worker. ${coordinator} is the coordinator and reviewer.
 
 Implement the requested work in this repository. Do not change unrelated files.
 
@@ -22245,21 +22264,63 @@ ${input.task}
 Acceptance criteria:
 ${list(input.acceptanceCriteria)}
 
-Plan from Codex:
+Plan from ${coordinator}:
 ${list(input.plan)}
 
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-
+${swarmLimitText(input.swarmLimits)}
 When complete, return a handoff with:
 - files changed
 - implementation summary
 - commands run
 - tests run and results
 - risks or incomplete items
-- anything requiring Codex review
-`;
+- anything requiring ${coordinator} review
+${input.workspaceFiles ? WORKSPACE_FILES : ""}`;
+}
+
+// src/swarm-settings.ts
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync } from "node:fs";
+import { join as join3 } from "node:path";
+var KIMI_SWARM_ITEM_LIMIT = 128;
+function positiveInt(raw, fallback) {
+  const value = Number.parseInt(raw ?? "", 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+function swarmSettingsPath(stateDir) {
+  return join3(stateDir, "swarm-settings.json");
+}
+function loadSwarmLimits(stateDir, env = process.env) {
+  const maxAgentsCap = Math.min(positiveInt(env.KIMI_MAX_AGENTS_CAP, 32), KIMI_SWARM_ITEM_LIMIT);
+  const concurrency = positiveInt(env.KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY, 4);
+  const defaultMaxAgents = Math.min(positiveInt(env.KIMI_DEFAULT_MAX_AGENTS, 4), maxAgentsCap);
+  let saved;
+  try {
+    const parsed = JSON.parse(readFileSync2(swarmSettingsPath(stateDir), "utf8"));
+    if (typeof parsed.maxAgents === "number" && Number.isInteger(parsed.maxAgents) && parsed.maxAgents > 0) {
+      saved = parsed.maxAgents;
+    }
+  } catch {
+  }
+  return {
+    maxAgents: Math.min(saved ?? defaultMaxAgents, maxAgentsCap),
+    defaultMaxAgents,
+    maxAgentsCap,
+    concurrency
+  };
+}
+function saveMaxAgents(stateDir, requested, env = process.env) {
+  if (!Number.isInteger(requested) || requested < 1) {
+    throw new Error("maxAgents must be a whole number of at least 1.");
+  }
+  const { maxAgentsCap } = loadSwarmLimits(stateDir, env);
+  const maxAgents = Math.min(requested, maxAgentsCap);
+  mkdirSync2(stateDir, { recursive: true });
+  writeFileSync(swarmSettingsPath(stateDir), `${JSON.stringify({ maxAgents }, null, 2)}
+`);
+  return { ...loadSwarmLimits(stateDir, env), requested, clamped: maxAgents !== requested };
 }
 
 // src/kimi/wait.ts
@@ -22279,7 +22340,7 @@ async function waitUntilIdle(input) {
     const remaining = deadline - Date.now();
     const sleepMs = Math.max(0, Math.min(intervalMs - elapsed, remaining));
     if (sleepMs > 0) {
-      await new Promise((resolve2) => setTimeout(resolve2, sleepMs));
+      await new Promise((resolve3) => setTimeout(resolve3, sleepMs));
     }
   } while (Date.now() < deadline);
   return { status: "timeout" };
@@ -22381,7 +22442,7 @@ import path2 from "node:path";
 // src/swarm-evidence.ts
 import { readFile as readFile2, readdir } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -22436,19 +22497,19 @@ function workerResultsFromOutput(output) {
 }
 async function findAgentsDir(kimiCodeHome, sessionId) {
   if (!/^[A-Za-z0-9._-]+$/.test(sessionId)) return void 0;
-  const sessionsRoot = join3(kimiCodeHome, "sessions");
+  const sessionsRoot = join4(kimiCodeHome, "sessions");
   const workspaceEntries = await readdir(sessionsRoot, { withFileTypes: true }).catch(() => void 0);
   if (!workspaceEntries) return void 0;
   for (const workspace of workspaceEntries) {
     if (!workspace.isDirectory()) continue;
-    const agentsDir = join3(sessionsRoot, workspace.name, sessionId, "agents");
+    const agentsDir = join4(sessionsRoot, workspace.name, sessionId, "agents");
     const exists = await readdir(agentsDir).then(() => true, () => false);
     if (exists) return agentsDir;
   }
   return void 0;
 }
 async function readSwarmEvidence(input) {
-  const kimiCodeHome = input.kimiCodeHome ?? join3(homedir2(), ".kimi-code");
+  const kimiCodeHome = input.kimiCodeHome ?? join4(homedir2(), ".kimi-code");
   const agentsDir = await findAgentsDir(kimiCodeHome, input.sessionId);
   if (!agentsDir) {
     return {
@@ -22465,7 +22526,7 @@ async function readSwarmEvidence(input) {
   }
   let mainRecords;
   try {
-    mainRecords = await parseJsonLines(join3(agentsDir, "main", "wire.jsonl"));
+    mainRecords = await parseJsonLines(join4(agentsDir, "main", "wire.jsonl"));
   } catch {
     return {
       available: false,
@@ -22507,7 +22568,7 @@ async function readSwarmEvidence(input) {
   for (const agentId of [...workerOutcomes.keys()].sort()) {
     let records = [];
     try {
-      records = await parseJsonLines(join3(agentsDir, agentId, "wire.jsonl"));
+      records = await parseJsonLines(join4(agentsDir, agentId, "wire.jsonl"));
     } catch {
     }
     const outcome = workerOutcomes.get(agentId);
@@ -23047,6 +23108,9 @@ function createToolHandlers(deps) {
           }
         }
         const prompt = buildDelegationPrompt({
+          coordinator: deps.config.coordinatorName,
+          workspaceFiles: deps.config.workspaceFiles,
+          swarmLimits: loadSwarmLimits(deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -23191,7 +23255,7 @@ function createToolHandlers(deps) {
       const job = requireOwnedSession(input.sessionId);
       const result = await waitUntilIdle({
         sessionId: input.sessionId,
-        timeoutMs: input.timeoutMs ?? deps.config.requestTimeoutMs,
+        timeoutMs: Math.min(input.timeoutMs ?? deps.config.requestTimeoutMs, deps.config.maxWaitMs ?? Number.POSITIVE_INFINITY),
         pollStatus: async () => ({ status: await deps.kimi.getRuntimeStatus(input.sessionId) })
       });
       syncJobStatusFromWait(job, result.status);
@@ -23286,6 +23350,9 @@ function createToolHandlers(deps) {
     async kimi_continue_task(input) {
       const job = requireOwnedSession(input.sessionId);
       const prompt = buildContinuationPrompt({
+        coordinator: deps.config.coordinatorName,
+        workspaceFiles: deps.config.workspaceFiles,
+        swarmLimits: loadSwarmLimits(deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],
@@ -23354,10 +23421,452 @@ function createToolHandlers(deps) {
   };
 }
 
+// src/file-transfer.ts
+import { createHash as createHash2, createHmac, randomBytes, randomUUID as randomUUID3, timingSafeEqual } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { lstat, mkdir as mkdir2, readdir as readdir3, realpath as realpath2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
+import { basename, dirname as dirname2, extname, join as join5, relative, resolve, sep } from "node:path";
+import { pipeline } from "node:stream/promises";
+var DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+function b64url(data) {
+  return Buffer.from(data).toString("base64url");
+}
+function signGrant(payload, key) {
+  const body = b64url(JSON.stringify(payload));
+  const sig = createHmac("sha256", key).update(body).digest("base64url");
+  return `${body}.${sig}`;
+}
+var GrantError = class extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+  status;
+};
+function safeFilename(raw) {
+  const name = basename(raw.replace(/\\/g, "/")).normalize("NFC").replace(/[\u0000-\u001f\u007f/]/g, "").replace(/^\.+/, "").trim().slice(0, 200);
+  return name || "upload.bin";
+}
+function isInside(root, candidate) {
+  const rel = relative(root, candidate);
+  return rel === "" || !rel.startsWith("..") && !rel.startsWith(sep) && rel !== "..";
+}
+async function resolveWorkspaceFile(config2, rawPath) {
+  const realRoot = await realpath2(config2.workspaceRoot);
+  const candidate = resolve(config2.workspaceRoot, rawPath);
+  if (!isInside(config2.workspaceRoot, candidate) && !isInside(realRoot, candidate)) {
+    throw new GrantError(400, "Path must be inside the workspace");
+  }
+  let real;
+  try {
+    real = await realpath2(candidate);
+  } catch {
+    throw new GrantError(404, `File not found: ${rawPath}`);
+  }
+  if (!isInside(realRoot, real)) throw new GrantError(400, "Path resolves outside the workspace");
+  const info = await stat(real);
+  if (!info.isFile()) throw new GrantError(400, "Only regular files can be downloaded");
+  return real;
+}
+async function uniqueDestination(dir, filename) {
+  const ext = extname(filename);
+  const stem = filename.slice(0, filename.length - ext.length);
+  for (let i = 0; i < 1e3; i += 1) {
+    const candidate = join5(dir, i === 0 ? filename : `${stem} (${i})${ext}`);
+    try {
+      await lstat(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return join5(dir, `${stem}-${randomUUID3()}${ext}`);
+}
+async function sha256File(path3) {
+  const hash = createHash2("sha256");
+  await pipeline(createReadStream(path3), hash);
+  return hash.digest("hex");
+}
+async function createUploadLink(config2, input, now = Date.now()) {
+  await mkdir2(config2.inputsDir, { recursive: true });
+  const destination = await uniqueDestination(config2.inputsDir, safeFilename(input.filename));
+  const maxBytes = Math.min(input.maxBytes ?? config2.maxUploadBytes, config2.maxUploadBytes);
+  const exp = Math.floor(now / 1e3) + config2.uploadTtlSeconds;
+  const sha256 = input.sha256?.toLowerCase();
+  if (sha256 !== void 0 && !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new GrantError(400, "sha256 must be 64 hex characters");
+  }
+  const token = signGrant(
+    { v: 1, op: "up", sid: config2.sandboxId, path: destination, exp, nonce: randomUUID3(), max: maxBytes, sha256 },
+    config2.key
+  );
+  const uploadUrl = `${config2.publicBaseUrl}/files/upload/${token}`;
+  return {
+    uploadUrl,
+    method: "PUT",
+    destination,
+    maxBytes,
+    expiresAt: new Date(exp * 1e3).toISOString(),
+    curl: `curl --fail -sS -X PUT --data-binary @<local-file> '${uploadUrl}'`
+  };
+}
+async function createDownloadLink(config2, rawPath, now = Date.now()) {
+  const path3 = await resolveWorkspaceFile(config2, rawPath);
+  const info = await stat(path3);
+  const exp = Math.floor(now / 1e3) + config2.downloadTtlSeconds;
+  const token = signGrant({ v: 1, op: "down", sid: config2.sandboxId, path: path3, exp, nonce: randomUUID3() }, config2.key);
+  return {
+    downloadUrl: `${config2.publicBaseUrl}/files/download/${token}`,
+    path: path3,
+    name: basename(path3),
+    sizeBytes: info.size,
+    sha256: await sha256File(path3),
+    expiresAt: new Date(exp * 1e3).toISOString()
+  };
+}
+var LIST_SKIP = /* @__PURE__ */ new Set([".git", "node_modules", ".venv", "__pycache__"]);
+async function listWorkspaceFiles(config2, rawDir = ".", limit = 200) {
+  const root = resolve(config2.workspaceRoot, rawDir);
+  if (!isInside(config2.workspaceRoot, root)) throw new GrantError(400, "Directory must be inside the workspace");
+  const items = [];
+  let truncated = false;
+  async function walk(dir, depth) {
+    if (truncated || depth > 8) return;
+    let entries;
+    try {
+      entries = await readdir3(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (LIST_SKIP.has(entry.name)) continue;
+      const full = join5(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full, depth + 1);
+      } else if (entry.isFile()) {
+        if (items.length >= limit) {
+          truncated = true;
+          return;
+        }
+        const info = await stat(full);
+        items.push({ path: full, sizeBytes: info.size, modifiedAt: info.mtime.toISOString() });
+      }
+    }
+  }
+  await walk(root, 0);
+  return { root, items, truncated };
+}
+
+// src/file-panel.ts
+var FILE_PANEL_URI = "ui://kimi-swarm/file-panel";
+var MIME = "text/html;profile=mcp-app";
+var PANEL_HTML = String.raw`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kimi files</title>
+<style>
+:root{--bg:#fff;--fg:#1f1f1f;--muted:#6b6b6b;--line:#e3e3e3;--accent:#2f6fde;--ok:#1a7f37;--err:#c62828;--chip:#f4f4f4}
+@media (prefers-color-scheme:dark){:root{--bg:#1f1f1f;--fg:#ececec;--muted:#a0a0a0;--line:#3a3a3a;--accent:#7aa7ff;--ok:#56d364;--err:#ff7b72;--chip:#2a2a2a}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+main{padding:12px}h2{font-size:13px;font-weight:600;margin:14px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+#drop{border:1.5px dashed var(--line);border-radius:10px;padding:16px;text-align:center;cursor:pointer}
+#drop.over{border-color:var(--accent)}#drop b{color:var(--accent)}
+.row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{color:var(--muted);font-size:12px;white-space:nowrap}
+button{font:inherit;border:1px solid var(--line);background:var(--chip);color:var(--fg);border-radius:6px;padding:3px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}progress{width:90px}
+.ok{color:var(--ok)}.err{color:var(--err)}#status{min-height:1.2em;font-size:12px;color:var(--muted)}
+</style></head><body><main>
+<div id="drop" tabindex="0" role="button" aria-label="Drop files here or choose files to upload to Kimi"><b>Drop files here</b> to give them to Kimi, or click to choose
+<input id="pick" type="file" multiple hidden></div>
+<div id="uploads"></div>
+<h2>Kimi workspace <button id="refresh" title="Refresh">Refresh</button></h2>
+<div id="files"><div class="meta">Loading…</div></div>
+<div id="status"></div>
+</main><script>
+(()=>{
+let nextId=1;const pending=new Map();let host={};
+const post=(m)=>window.parent.postMessage(Object.assign({jsonrpc:'2.0'},m),'*');
+const request=(method,params)=>new Promise((res,rej)=>{const id=nextId++;pending.set(id,{res,rej});post({id,method,params});});
+const notify=(method,params)=>post({method,params:params||{}});
+const $=(id)=>document.getElementById(id);
+const status=(t,cls)=>{const s=$('status');s.textContent=t||'';s.className=cls||''};
+const fmt=(n)=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
+const resize=()=>notify('ui/notifications/size-changed',{height:document.documentElement.scrollHeight});
+new ResizeObserver(resize).observe(document.body);
+async function callTool(name,args){
+  const r=await request('tools/call',{name,arguments:args||{}});
+  if(r.isError)throw new Error((r.content&&r.content[0]&&r.content[0].text)||'Tool failed');
+  if(r.structuredContent)return r.structuredContent;
+  return JSON.parse(r.content[0].text);
+}
+window.addEventListener('message',(e)=>{
+  const m=e.data;if(!m||m.jsonrpc!=='2.0')return;
+  if(m.id!==undefined&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.rej(new Error(m.error.message)):p.res(m.result);return;}
+  if(m.method==='ui/notifications/tool-result'&&m.params){const sc=m.params.structuredContent;if(sc&&sc.items)render(sc.items);}
+});
+function render(items){
+  const box=$('files');box.innerHTML='';
+  if(!items.length){box.innerHTML='<div class="meta">No files yet.</div>';return}
+  for(const f of items){
+    const row=document.createElement('div');row.className='row';
+    const name=document.createElement('span');name.className='name';name.textContent=f.path.replace(/^\/workspace\//,'');name.title=f.path;
+    const meta=document.createElement('span');meta.className='meta';meta.textContent=fmt(f.sizeBytes);
+    const btn=document.createElement('button');btn.textContent='Download';btn.onclick=()=>download(f.path,btn);
+    row.append(name,meta,btn);box.append(row);
+  }
+}
+async function refresh(){try{const r=await callTool('kimi_list_files',{dir:'/workspace'});render(r.items)}catch(e){status(e.message,'err')}}
+async function download(path,btn){
+  btn.disabled=true;status('Preparing download…');
+  try{
+    const link=(await callTool('kimi_create_download_links',{paths:[path]})).files[0];
+    if(host.downloadFile){
+      // Hand the host the bytes inline; hosts may refuse to fetch third-party links themselves.
+      const res=await fetch(link.downloadUrl);
+      if(!res.ok)throw new Error('Download failed: HTTP '+res.status);
+      const buf=new Uint8Array(await res.arrayBuffer());
+      let bin='';for(let i=0;i<buf.length;i+=32768)bin+=String.fromCharCode.apply(null,buf.subarray(i,i+32768));
+      const mimeType=res.headers.get('content-type')||'application/octet-stream';
+      const r=await request('ui/download-file',{contents:[{type:'resource',resource:{uri:'file:///'+encodeURIComponent(link.name),mimeType,blob:btoa(bin)}}]});
+      if(r&&r.isError){
+        if(host.openLinks){await request('ui/open-link',{url:link.downloadUrl});status('Opened download link for '+link.name+' (inline download was declined: '+JSON.stringify(r).slice(0,160)+')','ok');}
+        else status('The host declined the download: '+JSON.stringify(r).slice(0,200),'err');
+      }else status('Downloaded '+link.name+' (SHA-256 '+link.sha256.slice(0,12)+'…)','ok');
+    }else if(host.openLinks){
+      await request('ui/open-link',{url:link.downloadUrl});status('Opened download for '+link.name,'ok');
+    }else{
+      const a=document.createElement('a');a.href=link.downloadUrl;a.textContent=link.name;a.target='_blank';status('');$('status').append('Download: ',a);
+    }
+  }catch(e){status(e.message,'err')}finally{btn.disabled=false}
+}
+async function sha256(file){const d=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());return[...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+async function upload(file){
+  const row=document.createElement('div');row.className='row';
+  const name=document.createElement('span');name.className='name';name.textContent=file.name;
+  const bar=document.createElement('progress');bar.max=1;bar.value=0;
+  const meta=document.createElement('span');meta.className='meta';meta.textContent=fmt(file.size);
+  const cancel=document.createElement('button');cancel.textContent='Cancel';
+  row.append(name,bar,meta,cancel);$('uploads').append(row);
+  try{
+    const digest=await sha256(file);
+    const link=(await callTool('kimi_create_upload_links',{files:[{filename:file.name,sha256:digest,sizeBytes:file.size}]})).uploads[0];
+    const result=await new Promise((res,rej)=>{
+      const x=new XMLHttpRequest();x.open('PUT',link.uploadUrl);
+      x.upload.onprogress=(e)=>{if(e.lengthComputable)bar.value=e.loaded/e.total};
+      x.onload=()=>x.status===201?res(JSON.parse(x.responseText)):rej(new Error((()=>{try{return JSON.parse(x.responseText).error}catch{return 'HTTP '+x.status}})()));
+      x.onerror=()=>rej(new Error('Network error (is the upload domain allowed?)'));x.onabort=()=>rej(new Error('Cancelled'));
+      cancel.onclick=()=>x.abort();x.send(file);
+    });
+    bar.value=1;cancel.remove();meta.className='meta ok';meta.textContent='Uploaded ✓ '+result.path;
+    return result;
+  }catch(e){cancel.remove();meta.className='meta err';meta.textContent=e.message;return null}
+}
+async function handle(files){
+  const done=[];for(const f of files){const r=await upload(f);if(r)done.push(r)}
+  if(done.length){
+    const text='Files uploaded to the Kimi workspace:\n'+done.map(r=>'- '+r.path+' ('+r.sizeBytes+' bytes, sha256 '+r.sha256+')').join('\n');
+    if(host.updateModelContext){request('ui/update-model-context',{content:[{type:'text',text}]}).catch(()=>{})}
+    refresh();
+  }
+}
+const drop=$('drop'),pick=$('pick');
+drop.onclick=()=>{
+  let opened=false;const mark=()=>{opened=true};
+  window.addEventListener('blur',mark,{once:true});pick.addEventListener('cancel',mark,{once:true});
+  pick.click();
+  setTimeout(()=>{window.removeEventListener('blur',mark);if(!opened&&!pick.files.length)status('This app window cannot open a file picker here. Drag files onto the box instead.','err')},1500);
+};drop.onkeydown=(e)=>{if(e.key==='Enter'||e.key===' ')pick.click()};
+pick.onchange=()=>{handle([...pick.files]);pick.value=''};
+drop.ondragover=(e)=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');
+drop.ondrop=(e)=>{e.preventDefault();drop.classList.remove('over');handle([...e.dataTransfer.files])};
+$('refresh').onclick=refresh;
+request('ui/initialize',{appInfo:{name:'kimi-file-panel',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'})
+  .then((r)=>{host=(r&&r.hostCapabilities)||{};notify('ui/notifications/initialized');refresh()})
+  .catch((e)=>status('Panel could not connect to the host: '+e.message,'err'));
+})();
+</script></body></html>`;
+function registerFilePanel(server, config2) {
+  const origin = new URL(config2.publicBaseUrl).origin;
+  const uiMeta = { ui: { csp: { connectDomains: [origin] }, prefersBorder: true } };
+  server.registerResource(
+    "kimi_file_panel",
+    FILE_PANEL_URI,
+    { title: "Kimi file panel", description: "Upload files to and download files from the Kimi workspace.", mimeType: MIME, _meta: uiMeta },
+    async () => ({ contents: [{ uri: FILE_PANEL_URI, mimeType: MIME, text: PANEL_HTML, _meta: uiMeta }] })
+  );
+  server.registerTool(
+    "kimi_file_panel",
+    {
+      title: "Open Kimi File Panel",
+      description: "Show an interactive panel in the conversation where the user can pick files from their device to upload into the Kimi workspace (/workspace/inputs), see the workspace files, and download Kimi deliverables. Use it when the user wants to hand files to Kimi or collect results and code execution cannot transfer the bytes, or when the user asks for an upload or download button. The panel verifies SHA-256 for every upload and reports uploaded paths back to the conversation.",
+      inputSchema: {
+        dir: external_exports.string().optional().describe("Workspace directory to list initially, absolute or relative to /workspace. Defaults to the whole workspace.")
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      _meta: { ui: { resourceUri: FILE_PANEL_URI } }
+    },
+    async (input) => {
+      const result = await runToolHandler(() => listWorkspaceFiles(config2, input.dir));
+      if (result.isError) return result;
+      const listing = JSON.parse(result.content[0].text);
+      return {
+        content: [{ type: "text", text: `Opened the Kimi file panel. ${listing.items.length} file(s) in ${listing.root}.` }],
+        structuredContent: listing
+      };
+    }
+  );
+}
+
+// src/file-tools.ts
+var OUTPUTS_DIR = "/workspace/outputs";
+var FILE_HANDOFF_INSTRUCTIONS = `Kimi Swarm runs in the user's own remote Linux workspace (/workspace). Kimi cannot see files in this conversation, in your code-execution environment, or on the user's device unless you transfer them.
+
+Files in: when the user's request involves files they attached or uploaded (for example under /mnt/user-data/uploads) or files you created, transfer them before delegating. Compute each file's SHA-256, call kimi_create_upload_links once with all of them, then upload each file's exact bytes from code execution or a shell, e.g. curl --fail -X PUT --data-binary @<file> '<uploadUrl>'. Reference the returned /workspace/inputs paths in the Kimi task. Never paste file contents into tool arguments.
+
+Deliverables: when the user wants a file (report, PDF, spreadsheet, chart, slides, code archive), ask Kimi to produce the finished file in /workspace/outputs as part of the task instead of recreating it yourself, then bring it back as described below.
+
+Work: for anything longer than a minute use kimi_delegate_task, then call kimi_wait_until_idle repeatedly while it returns timeout (the job keeps running), then kimi_get_handoff. Kimi saves deliverables in /workspace/outputs.
+
+Files out: when a finished task produced files the user wants, call kimi_create_download_links (defaults to /workspace/outputs), download each URL into your environment (for example into /mnt/user-data/outputs), check the SHA-256, and present the files in the conversation. If you cannot run code, share the links with the user.`;
+function filePanelEnabled(clientName, env = process.env) {
+  const mode = env.KIMI_FILE_PANEL?.trim().toLowerCase();
+  if (mode === "always") return true;
+  if (mode === "never") return false;
+  return !/claude/i.test(clientName ?? "");
+}
+var FILE_TOOL_METADATA = {
+  kimi_create_upload_links: {
+    title: "Create Kimi File Upload Links",
+    description: "Create single-use HTTPS upload links that place files into the hosted Kimi workspace under /workspace/inputs. Call this whenever the user wants Kimi to use files they attached or uploaded, or files you produced: pass every file at once with its SHA-256, then PUT each file's raw bytes to its uploadUrl from code execution or a shell (the curl command is returned). Give Kimi the returned destination paths. Links expire after 15 minutes, accept one upload each, and reject bytes that do not match the SHA-256. File bytes never travel through MCP tool arguments.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  kimi_create_download_links: {
+    title: "Create Kimi File Download Links",
+    description: "Create short-lived HTTPS download links for files in the hosted Kimi workspace. Call this after a Kimi task finishes to collect its deliverables: with no arguments it covers everything in /workspace/outputs; pass paths for specific files. Returns each file's URL, name, size, and SHA-256. Download the files into your environment, verify the hashes, and present them to the user in the conversation. Paths outside /workspace are refused. Links stay valid for one hour.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false }
+  },
+  kimi_create_upload_link: {
+    title: "Create Kimi File Upload Link",
+    description: "Single-file form of kimi_create_upload_links (kept for clients with cached tool lists). Creates one single-use HTTPS link that places a file into /workspace/inputs; PUT the raw bytes to uploadUrl from code execution or a shell, then give Kimi the destination path. Prefer kimi_create_upload_links for several files.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+  },
+  kimi_create_download_link: {
+    title: "Create Kimi File Download Link",
+    description: "Single-file form of kimi_create_download_links (kept for clients with cached tool lists). Creates a one-hour HTTPS link, with size and SHA-256, for one file in the Kimi workspace; download it, verify the hash, and present the file to the user. Prefer kimi_create_download_links to collect all deliverables from /workspace/outputs.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false }
+  },
+  kimi_list_files: {
+    title: "List Kimi Workspace Files",
+    description: "List files in the hosted Kimi workspace (default /workspace, recursively, skipping .git and dependency folders) with sizes and modification times. Use it to confirm uploads arrived or to find deliverables outside /workspace/outputs. This tool is read-only and does not contact Kimi.",
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true }
+  }
+};
+async function createDownloadLinks(config2, input) {
+  const paths = input.paths?.length ? input.paths : (await listWorkspaceFiles(config2, input.dir ?? OUTPUTS_DIR, 50)).items.map((item) => item.path);
+  if (paths.length === 0) {
+    return { files: [], note: `No files found in ${input.dir ?? OUTPUTS_DIR}. Use kimi_list_files to locate deliverables.` };
+  }
+  return { files: await Promise.all(paths.map((path3) => createDownloadLink(config2, path3))) };
+}
+function registerFileTools(server, config2, options = {}) {
+  server.registerTool(
+    "kimi_create_upload_links",
+    {
+      ...FILE_TOOL_METADATA.kimi_create_upload_links,
+      inputSchema: {
+        files: external_exports.array(external_exports.object({
+          filename: external_exports.string().describe("Original file name including extension, for example report.pdf. Directory parts are stripped."),
+          sha256: external_exports.string().optional().describe("Lowercase hex SHA-256 of the file. Strongly recommended: the upload is rejected unless the received bytes match."),
+          sizeBytes: external_exports.number().optional().describe("File size in bytes; used as the upload size cap.")
+        })).min(1).max(50).describe("Every file to transfer, in one call.")
+      }
+    },
+    async (input) => runToolHandler(async () => ({
+      uploads: await Promise.all(input.files.map((file) => createUploadLink(config2, {
+        filename: file.filename,
+        sha256: file.sha256,
+        maxBytes: file.sizeBytes
+      })))
+    }))
+  );
+  server.registerTool(
+    "kimi_create_download_links",
+    {
+      ...FILE_TOOL_METADATA.kimi_create_download_links,
+      inputSchema: {
+        paths: external_exports.array(external_exports.string()).optional().describe("Specific files, absolute (/workspace/outputs/report.pdf) or relative to /workspace. Omit to cover the directory."),
+        dir: external_exports.string().optional().describe("Directory to cover when paths is omitted. Defaults to /workspace/outputs.")
+      }
+    },
+    async (input) => runToolHandler(() => createDownloadLinks(config2, input))
+  );
+  server.registerTool(
+    "kimi_create_upload_link",
+    {
+      ...FILE_TOOL_METADATA.kimi_create_upload_link,
+      inputSchema: {
+        filename: external_exports.string().describe("Original file name including extension, for example report.pdf. Directory parts are stripped."),
+        sha256: external_exports.string().optional().describe("Lowercase hex SHA-256 of the file; the upload is rejected unless the received bytes match."),
+        maxBytes: external_exports.number().optional().describe("Optional size cap in bytes; cannot exceed the deployment limit.")
+      }
+    },
+    async (input) => runToolHandler(() => createUploadLink(config2, input))
+  );
+  server.registerTool(
+    "kimi_create_download_link",
+    {
+      ...FILE_TOOL_METADATA.kimi_create_download_link,
+      inputSchema: {
+        path: external_exports.string().describe("File path inside the Kimi workspace, absolute or relative to /workspace.")
+      }
+    },
+    async (input) => runToolHandler(() => createDownloadLink(config2, input.path))
+  );
+  server.registerTool(
+    "kimi_list_files",
+    {
+      ...FILE_TOOL_METADATA.kimi_list_files,
+      inputSchema: {
+        dir: external_exports.string().optional().describe("Directory inside the workspace to list, absolute or relative to /workspace. Defaults to the whole workspace."),
+        limit: external_exports.number().optional().describe("Maximum number of files to return. Defaults to 200.")
+      }
+    },
+    async (input) => runToolHandler(() => listWorkspaceFiles(config2, input.dir, input.limit))
+  );
+  if (options.panel ?? true) {
+    registerFilePanel(server, config2);
+  }
+}
+
+// src/swarm-tools.ts
+function registerSwarmSettingsTool(server, stateDir) {
+  server.registerTool(
+    "kimi_swarm_settings",
+    {
+      title: "Kimi Swarm Agent Limits",
+      description: 'Show or change how many AgentSwarm workers Kimi may use per task. maxAgents is a ceiling: Kimi still decides how many workers each task needs and uses fewer for small tasks. Call with maxAgents when the user asks to raise or lower the agent limit (for example "increase the limit to 20"); call with no arguments to report the current settings. Values above the deployment cap are reduced to the cap. The response also reports concurrency, the number of workers that run at the same time (set by the deployment admin); extra workers queue, which keeps simultaneous ai& requests bounded, and Kimi backs off automatically if ai& rate-limits.',
+      inputSchema: {
+        maxAgents: external_exports.number().int().min(1).optional().describe("New ceiling on workers per task. Omit to only read the current settings.")
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
+    },
+    async (input) => runToolHandler(async () => {
+      if (input.maxAgents === void 0) {
+        return { ...loadSwarmLimits(stateDir), note: "maxAgents is a ceiling; Kimi decides the actual number per task." };
+      }
+      const result = saveMaxAgents(stateDir, input.maxAgents);
+      return {
+        ...result,
+        note: result.clamped ? `Requested ${result.requested} exceeds this deployment's cap; the ceiling is now ${result.maxAgents}.` : `Kimi may now use up to ${result.maxAgents} workers per task (it decides how many are needed); ${result.concurrency} run at a time.`
+      };
+    })
+  );
+}
+
 // src/preflight.ts
 import { spawn as defaultSpawn } from "node:child_process";
 import { homedir as homedir3 } from "node:os";
-import { join as join4 } from "node:path";
+import { join as join6 } from "node:path";
 var DEFAULT_STARTUP_TIMEOUT_MS = 3e4;
 var DEFAULT_POLL_INTERVAL_MS = 500;
 function shellQuote(arg) {
@@ -23519,14 +24028,14 @@ var KimiPreflight = class {
     }
     const check2 = (path3) => `test -f ${shellQuote(path3)} && echo "token file exists" || echo "token file missing"`;
     if (serverTokenSource === "kimi_code_home" && kimiCodeHome) {
-      return [check2(join4(kimiCodeHome, "server.token"))];
+      return [check2(join6(kimiCodeHome, "server.token"))];
     }
     if (serverTokenSource === "home") {
-      return [check2(join4(homedir3(), ".kimi-code", "server.token"))];
+      return [check2(join6(homedir3(), ".kimi-code", "server.token"))];
     }
-    const commands = [check2(join4(homedir3(), ".kimi-code", "server.token"))];
+    const commands = [check2(join6(homedir3(), ".kimi-code", "server.token"))];
     if (kimiCodeHome) {
-      commands.push(check2(join4(kimiCodeHome, "server.token")));
+      commands.push(check2(join6(kimiCodeHome, "server.token")));
     }
     return commands;
   }
@@ -23539,7 +24048,7 @@ var KimiPreflight = class {
     }
   }
   async startServer() {
-    return new Promise((resolve2, reject) => {
+    return new Promise((resolve3, reject) => {
       let settled = false;
       const child = this.spawnImpl(
         this.config.kimiCommand,
@@ -23556,7 +24065,7 @@ var KimiPreflight = class {
           reject(error2);
         } else {
           child.unref();
-          resolve2();
+          resolve3();
         }
       };
       child.on("error", (error2) => finish(new Error(`Failed to start Kimi server: ${error2.message}`)));
@@ -23576,7 +24085,7 @@ var KimiPreflight = class {
       if (lastStatus.healthzOk) {
         return lastStatus;
       }
-      await new Promise((resolve2) => setTimeout(resolve2, this.pollIntervalMs));
+      await new Promise((resolve3) => setTimeout(resolve3, this.pollIntervalMs));
     }
     const diagnostics = lastStatus?.diagnostics ?? ["Kimi server did not become ready in time."];
     throw new Error(
@@ -23673,7 +24182,7 @@ async function runToolHandler(handler) {
     };
   }
 }
-function createMcpServer() {
+function createMcpServer(options = {}) {
   const config2 = loadBridgeConfig();
   const http = new KimiHttpClient(config2.serverUrl, fetch, config2.requestTimeoutMs, config2.serverToken);
   const preflight = new KimiPreflight(config2, http);
@@ -23694,7 +24203,10 @@ function createMcpServer() {
     jobRegistry,
     jobOwner
   });
-  const server = new McpServer({ name: "kimi-swarm-bridge", version: "0.3.4" });
+  const server = new McpServer(
+    { name: "kimi-swarm-bridge", version: "0.3.4" },
+    options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : void 0
+  );
   server.registerTool(
     "kimi_delegate_task",
     {
@@ -23865,6 +24377,10 @@ function createMcpServer() {
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input))
   );
+  registerSwarmSettingsTool(server, config2.stateDir);
+  if (options.fileTransfer) {
+    registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });
+  }
   return server;
 }
 async function main() {
@@ -23872,11 +24388,11 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 function isDirectExecution(metaUrl, argvPath = process.argv[1]) {
-  if (!argvPath || basename(argvPath) !== "index.js") {
+  if (!argvPath || basename2(argvPath) !== "index.js") {
     return false;
   }
   try {
-    return resolve(fileURLToPath(metaUrl)) === resolve(argvPath);
+    return resolve2(fileURLToPath(metaUrl)) === resolve2(argvPath);
   } catch {
     return false;
   }
