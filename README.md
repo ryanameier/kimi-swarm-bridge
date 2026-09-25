@@ -40,6 +40,8 @@ What the numbers show:
 
 Scaling beyond these tests: The agent cap goes up to 128 and can be raised live with no restart (`POST /admin/sandboxes/<id>/limits`); parallelism is set by `SWARM_CONCURRENCY` (20 here), which takes effect when the container restarts. The limit in practice is ai&'s per-organization rate limit (about 100 requests per window, shared by every key in the org); the 15-agent run used 158 requests in about 4 minutes. We expect Kimi to pull ahead on longer, wider jobs if the organization's ai& rate limit is raised, but that is a projection, not yet measured.
 
+Moonshot's own results for Agent Swarm (Kimi K2.5, not these tests) point the same way. In wide-search tasks, the swarm needed 3–4.5× fewer critical steps than a single Kimi agent, which Moonshot reports as up to 4.5× less wall-clock time. It also scored higher than Claude Opus 4.5 on BrowseComp and WideSearch, which measure accuracy rather than speed ([Kimi K2.5 tech blog](https://www.kimi.ai/blog/kimi-k2-5)). Those runs used Moonshot's model and harness, with up to 100 sub-agents; this bridge defaults to GLM-5.3 and a cap of 20.
+
 ## What it provides
 
 The bridge exposes Kimi Code through MCP with support for:
