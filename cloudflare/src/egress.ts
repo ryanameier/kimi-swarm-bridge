@@ -1,5 +1,3 @@
-import { ContainerProxy as SandboxContainerProxy } from "@cloudflare/sandbox";
-
 /**
  * Outbound traffic from employee containers.
  *
@@ -107,7 +105,7 @@ function logEgress(entry: Record<string, unknown>): void {
 	console.log(JSON.stringify({ event: "egress", ...entry }));
 }
 
-interface ProxyProps {
+export interface ProxyProps {
 	containerId?: string;
 }
 
@@ -145,17 +143,4 @@ export async function handleEgress(
 
 	logEgress({ sandbox, host, method: request.method, action: "allowed" });
 	return fallback(request);
-}
-
-/**
- * Worker entrypoint the container runtime sends intercepted traffic to. It
- * extends the Sandbox SDK proxy, which still handles SDK-internal hosts.
- */
-export class ContainerProxy extends SandboxContainerProxy {
-	override async fetch(request: Request): Promise<Response> {
-		const props = ((this as unknown as { ctx: { props?: ProxyProps } }).ctx.props ?? {}) as ProxyProps;
-		const host = new URL(request.url).hostname;
-		if (host.endsWith(".internal") || host.endsWith(".sandbox.test")) return super.fetch(request);
-		return handleEgress(request, this.env as unknown as EgressEnv, props, (req) => fetch(req));
-	}
 }

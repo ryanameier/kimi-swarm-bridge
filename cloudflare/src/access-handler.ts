@@ -25,7 +25,13 @@ export async function handleAccessRequest(
 	const { pathname, searchParams } = new URL(request.url);
 
 	if (request.method === "GET" && pathname === "/authorize") {
-		const oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+		let oauthReqInfo: AuthRequest;
+		try {
+			oauthReqInfo = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+		} catch (error) {
+			// Unknown client, bad redirect URI or malformed parameters.
+			return new Response(`Invalid authorization request: ${error instanceof Error ? error.message : String(error)}`, { status: 400 });
+		}
 		const { clientId } = oauthReqInfo;
 		if (!clientId) {
 			return new Response("Invalid request", { status: 400 });
