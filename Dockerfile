@@ -47,6 +47,7 @@ RUN apt-get update \
        poppler-utils \
        python3 \
        python3-pip \
+       python-is-python3 \
        ripgrep \
        tini \
        unzip \

@@ -23,7 +23,7 @@
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["KimiSandbox"] }],
 	"r2_buckets": [{ "binding": "BACKUP_BUCKET", "bucket_name": "kimi-swarm-backups" }],
-	"vars": { "ORGANIZATION_ID": "default" },
+	"vars": { "ORGANIZATION_ID": "default", "SWARM_CONCURRENCY": "4", "MAX_AGENTS_CAP": "32", "DEFAULT_MAX_AGENTS": "4" },
 	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "set-by-npm-run-setup" }],
 	"secrets": {
 		"required": [

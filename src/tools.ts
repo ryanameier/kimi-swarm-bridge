@@ -1,5 +1,6 @@
 import type { BridgeConfig } from './config.js';
 import { buildContinuationPrompt, buildDelegationPrompt } from './prompt.js';
+import { loadSwarmLimits } from './swarm-settings.js';
 import type { KimiHandoff } from './handoff.js';
 import type { KimiClient } from './kimi/client.js';
 import { waitUntilIdle, type WaitUntilIdleResult } from './kimi/wait.js';
@@ -842,6 +843,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         const prompt = buildDelegationPrompt({
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
+          swarmLimits: loadSwarmLimits(deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1125,6 +1127,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       const prompt = buildContinuationPrompt({
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
+        swarmLimits: loadSwarmLimits(deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],

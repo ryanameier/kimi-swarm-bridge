@@ -13,6 +13,7 @@ import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
 import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
+import { registerSwarmSettingsTool } from './swarm-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -300,6 +301,8 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     },
     async (input) => runToolHandler(() => handlers.kimi_find_recent_session(input)),
   );
+
+  registerSwarmSettingsTool(server, config.stateDir);
 
   if (options.fileTransfer) {
     registerFileTools(server, options.fileTransfer, { panel: filePanelEnabled(options.clientName) });

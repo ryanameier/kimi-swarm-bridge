@@ -69,6 +69,11 @@ export class KimiSandbox extends Sandbox<Env> {
 			KIMI_MCP_AUTH_TOKEN: env.BRIDGE_TOKEN,
 			KIMI_ORGANIZATION_ID: env.ORGANIZATION_ID || "default",
 			KIMI_CONNECTOR_INSTANCE_ID: "cloudflare",
+			// Swarm guardrails: agents per task (users can lower/raise within the cap)
+			// and how many workers call ai& at the same time.
+			KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY: env.SWARM_CONCURRENCY || "4",
+			KIMI_MAX_AGENTS_CAP: env.MAX_AGENTS_CAP || "32",
+			KIMI_DEFAULT_MAX_AGENTS: env.DEFAULT_MAX_AGENTS || "4",
 		};
 	}
 

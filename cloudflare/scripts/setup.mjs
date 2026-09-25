@@ -9,7 +9,10 @@
 //   AIAND_API_KEY, FIRECRAWL_API_KEY ("disabled" to skip web tools),
 //   ACCESS_TEAM (team name or <team>.cloudflareaccess.com),
 //   ACCESS_CLIENT_ID, ACCESS_CLIENT_SECRET, KIMI_WORKER_NAME,
-//   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp)
+//   KIMI_REGIONS (e.g. ENAM,WNAM; blank = anywhere), KIMI_JURISDICTION (eu | fedramp),
+//   KIMI_SWARM_CONCURRENCY (workers calling ai& at once, default 4),
+//   KIMI_MAX_AGENTS_CAP (highest agent ceiling users may set, default 32),
+//   KIMI_DEFAULT_MAX_AGENTS (starting ceiling, default 4)
 // Flags: --dry-run, --rotate-internal (new BRIDGE/COOKIE/ADMIN secrets), --yes (no prompts).
 
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -168,13 +171,34 @@ async function main() {
   config.kv_namespaces = [{ binding: 'OAUTH_KV', id: kv?.id ?? '<created on a real run>' }];
   config.r2_buckets = [{ binding: 'BACKUP_BUCKET', bucket_name: bucketName }];
 
+  // Swarm guardrails. Concurrency bounds simultaneous ai& requests per employee;
+  // agents beyond it queue. Users change their own ceiling from chat within the cap.
+  const intVar = (name, fallback) => {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return String(fallback);
+    if (!/^[1-9][0-9]*$/.test(raw)) fail(`${name} must be a positive whole number.`);
+    return raw;
+  };
+  const previousVars = existsSync(DEPLOY_CONFIG) ? readJsonc(DEPLOY_CONFIG).vars ?? {} : {};
+  const pick = (name) => previousVars[name] ?? config.vars?.[name];
+  config.vars = {
+    ...config.vars,
+    SWARM_CONCURRENCY: intVar('KIMI_SWARM_CONCURRENCY', pick('SWARM_CONCURRENCY') ?? 4),
+    MAX_AGENTS_CAP: intVar('KIMI_MAX_AGENTS_CAP', pick('MAX_AGENTS_CAP') ?? 32),
+    DEFAULT_MAX_AGENTS: intVar('KIMI_DEFAULT_MAX_AGENTS', pick('DEFAULT_MAX_AGENTS') ?? 4),
+  };
+  ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
+
   // Where employee containers may run (data residency / latency).
   const REGIONS = ['ENAM', 'WNAM', 'EEUR', 'WEUR', 'APAC', 'SAM', 'ME', 'OC', 'AFR'];
-  const regions = (process.env.KIMI_REGIONS ?? await ask(`Container regions, comma-separated (${REGIONS.join(' ')}; Enter = anywhere)`))
+  // Re-runs keep the previous placement unless told otherwise.
+  const previous = existsSync(DEPLOY_CONFIG) ? readJsonc(DEPLOY_CONFIG).containers?.[0]?.constraints ?? {} : {};
+  const previousRegions = (previous.regions ?? []).join(',');
+  const regions = (process.env.KIMI_REGIONS ?? await ask(`Container regions, comma-separated (${REGIONS.join(' ')}; Enter = anywhere)`, { fallback: previousRegions || undefined }) ?? previousRegions)
     .split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
   const unknown = regions.filter((r) => !REGIONS.includes(r));
   if (unknown.length) fail(`Unknown region(s): ${unknown.join(', ')}. Use: ${REGIONS.join(', ')}.`);
-  const jurisdiction = (process.env.KIMI_JURISDICTION ?? '').trim().toLowerCase();
+  const jurisdiction = (process.env.KIMI_JURISDICTION ?? previous.jurisdiction ?? '').trim().toLowerCase();
   if (jurisdiction && !['eu', 'fedramp'].includes(jurisdiction)) fail('KIMI_JURISDICTION must be eu or fedramp.');
   if (regions.length || jurisdiction) {
     config.containers = config.containers.map((c) => ({

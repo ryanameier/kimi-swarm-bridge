@@ -3,6 +3,14 @@ export interface PromptContext {
   coordinator?: string;
   /** Hosted runtime: caller files arrive in /workspace/inputs; deliverables go to /workspace/outputs. */
   workspaceFiles?: boolean;
+  /** AgentSwarm ceiling and simultaneous-worker limit for this user. */
+  swarmLimits?: { maxAgents: number; concurrency: number };
+}
+
+function swarmLimitText(limits: PromptContext['swarmLimits']): string {
+  if (!limits) return '';
+  return `Decide how many AgentSwarm workers the task needs (fewer for small or tightly coupled work), never more than ${limits.maxAgents}. At most ${limits.concurrency} run at the same time; extra workers queue automatically.
+`;
 }
 
 const WORKSPACE_FILES = `
@@ -52,7 +60,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-
+${swarmLimitText(input.swarmLimits)}
 When complete, return a handoff with:
 - files changed
 - implementation summary
@@ -86,7 +94,7 @@ ${list(input.plan)}
 Parallelization:
 If the work has independent parts, use AgentSwarm. Suggested split:
 ${swarm}
-
+${swarmLimitText(input.swarmLimits)}
 When complete, return a handoff with:
 - files changed
 - implementation summary
