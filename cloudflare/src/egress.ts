@@ -144,14 +144,18 @@ export function gateFor(env: EgressEnv): ConcurrencyLimiter | undefined {
 	return env.AIAND_GATE ? (env.AIAND_GATE.get(env.AIAND_GATE.idFromName("org")) as unknown as ConcurrencyLimiter) : undefined;
 }
 
-/** Calls `done` once the response body has been fully sent (or the stream fails). */
-export function whenBodyDone(response: Response, done: () => void): Response {
+/**
+ * Calls `done` once the response body has been fully sent (or the stream fails).
+ * `waitUntil` keeps the invocation alive for it: without it the runtime can end the
+ * request as soon as the body is delivered and drop `done`'s own work (the gate release).
+ */
+export function whenBodyDone(response: Response, done: () => Promise<void> | void, waitUntil: (promise: Promise<unknown>) => void): Response {
 	if (!response.body) {
-		done();
+		waitUntil(Promise.resolve(done()));
 		return response;
 	}
 	const { readable, writable } = new TransformStream();
-	response.body.pipeTo(writable).catch(() => undefined).finally(done);
+	waitUntil(response.body.pipeTo(writable).catch(() => undefined).then(() => done()));
 	return new Response(readable, response);
 }
 
@@ -165,6 +169,7 @@ export async function handleEgress(
 	props: ProxyProps,
 	fallback: (request: Request) => Promise<Response>,
 	sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+	waitUntil: (promise: Promise<unknown>) => void = () => {},
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const host = url.hostname.toLowerCase();
@@ -186,14 +191,12 @@ export async function handleEgress(
 		const gate = model ? gateFor(env) : undefined;
 		const lease = gate ? await gate.acquire() : undefined;
 		const started = Date.now();
-		const release = () => {
-			if (lease) gate!.release(lease.id).catch((error) => console.error("aiand gate release failed", error));
-		};
+		const release = () => (lease ? gate!.release(lease.id).catch((error) => console.error("aiand gate release failed", error)) : Promise.resolve());
 		let response: Response;
 		try {
 			response = await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
 		} catch (error) {
-			release();
+			waitUntil(release());
 			throw error;
 		}
 		// Account-level problems (exhausted credits, revoked key) fail every task; make them visible to admins.
@@ -208,12 +211,12 @@ export async function handleEgress(
 		const modelName = response.headers.get("x-model") ?? "";
 		const inferenceMs = Number.parseInt(response.headers.get("x-inference-ms") ?? "", 10);
 		return whenBodyDone(response, () => {
-			release();
 			console.log(JSON.stringify({
 				event: "timing", kind: "model", sandbox, model: modelName, status: response.status,
 				waitMs: lease?.waitMs ?? 0, headersMs, ms: Date.now() - started, inferenceMs: Number.isFinite(inferenceMs) ? inferenceMs : undefined,
 			}));
-		});
+			return release();
+		}, waitUntil);
 	}
 
 	if (mode === "open") return fallback(request);

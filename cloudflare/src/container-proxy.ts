@@ -17,6 +17,7 @@ export class ContainerProxy extends SandboxContainerProxy {
 			return response;
 		}
 		if (host.endsWith(".internal") || host.endsWith(".sandbox.test")) return super.fetch(request);
-		return handleEgress(request, this.env as unknown as EgressEnv, props, (req) => fetch(req));
+		const ctx = (this as unknown as { ctx: ExecutionContext }).ctx;
+		return handleEgress(request, this.env as unknown as EgressEnv, props, (req) => fetch(req), undefined, (promise) => ctx.waitUntil(promise));
 	}
 }

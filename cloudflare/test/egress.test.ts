@@ -202,6 +202,18 @@ describe("organization-wide ai& concurrency gate", () => {
 		expect(timing).toMatchObject({ kind: "model", sandbox: "do-id-1", waitMs: 25, status: 200 });
 	});
 
+	it("keeps the invocation alive until the slot is released", async () => {
+		stubFetch();
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		const { env, calls } = gateEnv();
+		const kept: Promise<unknown>[] = [];
+		const response = await handleEgress(chat(), env, props, direct, undefined, (promise) => kept.push(promise));
+		expect(kept).toHaveLength(1);
+		await response.text();
+		await Promise.all(kept);
+		expect(calls).toEqual(["acquire", "release:l1"]);
+	});
+
 	it("releases the slot when the upstream request fails", async () => {
 		vi.stubGlobal("fetch", async () => {
 			throw new Error("network down");

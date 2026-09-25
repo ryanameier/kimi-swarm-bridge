@@ -1,8 +1,8 @@
 /** Admission logic for AiandGate, kept free of Workers imports so it can be unit-tested. */
 
 export const DEFAULT_AIAND_CONCURRENCY = 100;
-/** A lease not released within this time (lost connection) is dropped. */
-const LEASE_TTL_MS = 15 * 60_000;
+/** A lease not released within this time (lost release, dropped connection) is dropped. */
+const LEASE_TTL_MS = 5 * 60_000;
 
 export interface GateStats {
 	limit: number;

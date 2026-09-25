@@ -35,7 +35,7 @@ describe("ConcurrencyGate", () => {
 		let now = 0;
 		const gate = new ConcurrencyGate(1, () => now);
 		await gate.acquire();
-		now = 16 * 60_000;
+		now = 6 * 60_000;
 		await expect(gate.acquire()).resolves.toMatchObject({ waitMs: 0 });
 	});
 
