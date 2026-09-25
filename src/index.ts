@@ -12,7 +12,7 @@ import { KimiHttpClient } from './kimi/http.js';
 import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
-import { registerFileTools } from './file-tools.js';
+import { FILE_HANDOFF_INSTRUCTIONS, registerFileTools } from './file-tools.js';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -112,7 +112,10 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     jobRegistry,
     jobOwner,
   });
-  const server = new McpServer({ name: 'kimi-swarm-bridge', version: '0.3.4' });
+  const server = new McpServer(
+    { name: 'kimi-swarm-bridge', version: '0.3.4' },
+    options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : undefined,
+  );
 
   server.registerTool(
     'kimi_delegate_task',

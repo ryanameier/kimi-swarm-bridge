@@ -73,7 +73,7 @@ async function refresh(){try{const r=await callTool('kimi_list_files',{dir:'/wor
 async function download(path,btn){
   btn.disabled=true;status('Preparing download…');
   try{
-    const link=await callTool('kimi_create_download_link',{path});
+    const link=(await callTool('kimi_create_download_links',{paths:[path]})).files[0];
     if(host.downloadFile){
       // Hand the host the bytes inline; hosts may refuse to fetch third-party links themselves.
       const res=await fetch(link.downloadUrl);
@@ -103,7 +103,7 @@ async function upload(file){
   row.append(name,bar,meta,cancel);$('uploads').append(row);
   try{
     const digest=await sha256(file);
-    const link=await callTool('kimi_create_upload_link',{filename:file.name,sha256:digest,maxBytes:file.size});
+    const link=(await callTool('kimi_create_upload_links',{files:[{filename:file.name,sha256:digest,sizeBytes:file.size}]})).uploads[0];
     const result=await new Promise((res,rej)=>{
       const x=new XMLHttpRequest();x.open('PUT',link.uploadUrl);
       x.upload.onprogress=(e)=>{if(e.lengthComputable)bar.value=e.loaded/e.total};

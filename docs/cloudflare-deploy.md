@@ -25,9 +25,9 @@ Vendors: **Cloudflare**, **ai&**, and **Firecrawl** (optional; paid plan for com
 
 - Kimi tools in Claude (`kimi_delegate_task`, `kimi_wait_until_idle`, `kimi_get_handoff`, …).
 - Their own isolated Linux workspace. Employees never share a filesystem or process space.
-- Files in: Claude uploads attachments with `kimi_create_upload_link` (code execution), or the
+- Files in: Claude uploads attachments with `kimi_create_upload_links` (code execution; the server tells Claude when and how), or the
   employee uses the in-chat panel (`kimi_file_panel`).
-- Files out: `kimi_create_download_link`, or the panel's Download buttons.
+- Files out: `kimi_create_download_links` (Claude downloads and presents deliverables from `/workspace/outputs`), or the panel's Download buttons.
 - Work survives restarts: `/workspace` and Kimi's state are backed up to R2 and restored.
 
 ## Prerequisites

@@ -14,47 +14,82 @@ import { runToolHandler } from './index.js';
  * Registered only when the bridge serves HTTP (the hosted runtime); local stdio
  * users already share a filesystem with Kimi.
  */
+
+export const OUTPUTS_DIR = '/workspace/outputs';
+
+/** Sent to the client at initialize so the model knows when and how to move files. */
+export const FILE_HANDOFF_INSTRUCTIONS = `Kimi Swarm runs in the user's own remote Linux workspace (/workspace). Kimi cannot see files in this conversation, in your code-execution environment, or on the user's device unless you transfer them.
+
+Files in: when the user's request involves files they attached or uploaded (for example under /mnt/user-data/uploads) or files you created, transfer them before delegating. Compute each file's SHA-256, call kimi_create_upload_links once with all of them, then upload each file's exact bytes from code execution or a shell, e.g. curl --fail -X PUT --data-binary @<file> '<uploadUrl>'. Reference the returned /workspace/inputs paths in the Kimi task. Never paste file contents into tool arguments.
+
+Work: for anything longer than a minute use kimi_delegate_task, then call kimi_wait_until_idle repeatedly while it returns timeout (the job keeps running), then kimi_get_handoff. Kimi saves deliverables in /workspace/outputs.
+
+Files out: when a finished task produced files the user wants, call kimi_create_download_links (defaults to /workspace/outputs), download each URL into your environment (for example into /mnt/user-data/outputs), check the SHA-256, and present the files in the conversation. If you cannot run code, share the links or open kimi_file_panel so the user can download them.`;
+
 export const FILE_TOOL_METADATA = {
-  kimi_create_upload_link: {
-    title: 'Create Kimi File Upload Link',
-    description: 'Create a single-use HTTPS link that places one file into the hosted Kimi workspace under /workspace/inputs. Call this when the user shares a file (chat attachment, local file, generated data) that Kimi should use: upload the exact bytes with an HTTP PUT whose body is the raw file (for example with the returned curl command from a code-execution or shell environment), then pass the returned destination path to Kimi in the task. The link expires after 15 minutes and accepts one upload. Supplying sha256 makes the server reject altered bytes. File bytes never travel through MCP tool arguments.',
+  kimi_create_upload_links: {
+    title: 'Create Kimi File Upload Links',
+    description: 'Create single-use HTTPS upload links that place files into the hosted Kimi workspace under /workspace/inputs. Call this whenever the user wants Kimi to use files they attached or uploaded, or files you produced: pass every file at once with its SHA-256, then PUT each file\'s raw bytes to its uploadUrl from code execution or a shell (the curl command is returned). Give Kimi the returned destination paths. Links expire after 15 minutes, accept one upload each, and reject bytes that do not match the SHA-256. File bytes never travel through MCP tool arguments.',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
-  kimi_create_download_link: {
-    title: 'Create Kimi File Download Link',
-    description: 'Create a short-lived HTTPS link to download one file that Kimi produced or received in its workspace (for example a report, spreadsheet, image, or ZIP under /workspace). Returns the URL, file name, size, and SHA-256 so the caller can verify the bytes. Give the link to the user or fetch it from a code-execution or shell environment to save the file locally. Paths outside /workspace are refused. The link is valid for one hour and can be fetched repeatedly until it expires.',
+  kimi_create_download_links: {
+    title: 'Create Kimi File Download Links',
+    description: 'Create short-lived HTTPS download links for files in the hosted Kimi workspace. Call this after a Kimi task finishes to collect its deliverables: with no arguments it covers everything in /workspace/outputs; pass paths for specific files. Returns each file\'s URL, name, size, and SHA-256. Download the files into your environment, verify the hashes, and present them to the user in the conversation. Paths outside /workspace are refused. Links stay valid for one hour.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false },
   },
   kimi_list_files: {
     title: 'List Kimi Workspace Files',
-    description: 'List files in the hosted Kimi workspace (default /workspace, recursively, skipping .git and dependency folders) with sizes and modification times. Use it to find deliverables after a Kimi task finishes, or to confirm an upload arrived, before creating download links. This tool is read-only and does not contact Kimi.',
+    description: 'List files in the hosted Kimi workspace (default /workspace, recursively, skipping .git and dependency folders) with sizes and modification times. Use it to confirm uploads arrived or to find deliverables outside /workspace/outputs. This tool is read-only and does not contact Kimi.',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
 } as const;
 
+export async function createDownloadLinks(
+  config: FileTransferConfig,
+  input: { paths?: string[]; dir?: string },
+): Promise<{ files: Awaited<ReturnType<typeof createDownloadLink>>[]; note?: string }> {
+  const paths = input.paths?.length
+    ? input.paths
+    : (await listWorkspaceFiles(config, input.dir ?? OUTPUTS_DIR, 50)).items.map((item) => item.path);
+
+  if (paths.length === 0) {
+    return { files: [], note: `No files found in ${input.dir ?? OUTPUTS_DIR}. Use kimi_list_files to locate deliverables.` };
+  }
+  return { files: await Promise.all(paths.map((path) => createDownloadLink(config, path))) };
+}
+
 export function registerFileTools(server: McpServer, config: FileTransferConfig): void {
   server.registerTool(
-    'kimi_create_upload_link',
+    'kimi_create_upload_links',
     {
-      ...FILE_TOOL_METADATA.kimi_create_upload_link,
+      ...FILE_TOOL_METADATA.kimi_create_upload_links,
       inputSchema: {
-        filename: z.string().describe('Original file name including extension, for example report.pdf. Directory parts are stripped.'),
-        sha256: z.string().optional().describe('Optional lowercase hex SHA-256 of the file. When supplied, the upload is rejected unless the received bytes match.'),
-        maxBytes: z.number().optional().describe('Optional size cap in bytes; cannot exceed the deployment limit (100 MiB by default).'),
+        files: z.array(z.object({
+          filename: z.string().describe('Original file name including extension, for example report.pdf. Directory parts are stripped.'),
+          sha256: z.string().optional().describe('Lowercase hex SHA-256 of the file. Strongly recommended: the upload is rejected unless the received bytes match.'),
+          sizeBytes: z.number().optional().describe('File size in bytes; used as the upload size cap.'),
+        })).min(1).max(50).describe('Every file to transfer, in one call.'),
       },
     },
-    async (input) => runToolHandler(() => createUploadLink(config, input)),
+    async (input) => runToolHandler(async () => ({
+      uploads: await Promise.all(input.files.map((file) => createUploadLink(config, {
+        filename: file.filename,
+        sha256: file.sha256,
+        maxBytes: file.sizeBytes,
+      }))),
+    })),
   );
 
   server.registerTool(
-    'kimi_create_download_link',
+    'kimi_create_download_links',
     {
-      ...FILE_TOOL_METADATA.kimi_create_download_link,
+      ...FILE_TOOL_METADATA.kimi_create_download_links,
       inputSchema: {
-        path: z.string().describe('File path inside the Kimi workspace, absolute (/workspace/out/report.pdf) or relative to /workspace.'),
+        paths: z.array(z.string()).optional().describe('Specific files, absolute (/workspace/outputs/report.pdf) or relative to /workspace. Omit to cover the directory.'),
+        dir: z.string().optional().describe('Directory to cover when paths is omitted. Defaults to /workspace/outputs.'),
       },
     },
-    async (input) => runToolHandler(() => createDownloadLink(config, input.path)),
+    async (input) => runToolHandler(() => createDownloadLinks(config, input)),
   );
 
   server.registerTool(

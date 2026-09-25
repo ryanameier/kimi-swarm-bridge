@@ -840,6 +840,8 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         }
 
         const prompt = buildDelegationPrompt({
+          coordinator: deps.config.coordinatorName,
+          workspaceFiles: deps.config.workspaceFiles,
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1121,6 +1123,8 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       const job = requireOwnedSession(input.sessionId);
 
       const prompt = buildContinuationPrompt({
+        coordinator: deps.config.coordinatorName,
+        workspaceFiles: deps.config.workspaceFiles,
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],

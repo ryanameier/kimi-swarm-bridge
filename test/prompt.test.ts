@@ -18,3 +18,25 @@ describe('buildDelegationPrompt', () => {
     expect(prompt).toContain('tests run and results');
   });
 });
+
+describe('hosted prompt context', () => {
+  it('names the coordinator and adds the inputs/outputs convention when configured', () => {
+    const prompt = buildDelegationPrompt({
+      task: 'Summarise the PDF.',
+      acceptanceCriteria: [],
+      plan: [],
+      coordinator: 'Claude',
+      workspaceFiles: true,
+    });
+    expect(prompt).toContain('Claude is the coordinator and reviewer');
+    expect(prompt).not.toContain('Codex');
+    expect(prompt).toContain('/workspace/inputs');
+    expect(prompt).toContain('/workspace/outputs');
+  });
+
+  it('keeps the default Codex wording without file conventions', () => {
+    const prompt = buildDelegationPrompt({ task: 'x', acceptanceCriteria: [], plan: [] });
+    expect(prompt).toContain('Codex is the coordinator and reviewer');
+    expect(prompt).not.toContain('/workspace/outputs');
+  });
+});

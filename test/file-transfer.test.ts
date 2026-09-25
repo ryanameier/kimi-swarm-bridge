@@ -167,3 +167,21 @@ describe('download links', () => {
     expect((await fetch(`${config.publicBaseUrl}/files/download/${token}`)).status).toBe(405);
   });
 });
+
+describe('batch download links', () => {
+  it('defaults to every file in /workspace/outputs', async () => {
+    const { createDownloadLinks } = await import('../src/file-tools.js');
+    const outputs = join(config.workspaceRoot, 'outputs');
+    await mkdir(outputs, { recursive: true });
+    await writeFile(join(outputs, 'a.md'), 'a');
+    await writeFile(join(outputs, 'b.png'), 'b');
+    await writeFile(join(config.workspaceRoot, 'scratch.txt'), 'not a deliverable');
+
+    const result = await createDownloadLinks(config, { dir: outputs });
+    expect(result.files.map((f) => f.name).sort()).toEqual(['a.md', 'b.png']);
+
+    const empty = await createDownloadLinks(config, { dir: join(config.workspaceRoot, 'none') });
+    expect(empty.files).toEqual([]);
+    expect(empty.note).toMatch(/No files found/);
+  });
+});

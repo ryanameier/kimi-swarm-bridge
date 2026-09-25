@@ -168,8 +168,8 @@ describe('HTTP MCP entrypoint', () => {
     expect(tools.map((tool) => tool.name)).toContain('kimi_bridge_status');
     expect(tools.map((tool) => tool.name)).toContain('kimi_recent_jobs');
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
-      'kimi_create_upload_link',
-      'kimi_create_download_link',
+      'kimi_create_upload_links',
+      'kimi_create_download_links',
       'kimi_list_files',
       'kimi_file_panel',
     ]));

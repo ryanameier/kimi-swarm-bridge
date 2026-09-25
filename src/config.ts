@@ -20,6 +20,10 @@ export interface BridgeConfig {
   stateDir: string;
   /** Upper bound for a single wait call, so hosted MCP clients with call deadlines get a timeout result instead of a dropped call. */
   maxWaitMs?: number;
+  /** Name used for the delegating agent in prompts sent to Kimi. */
+  coordinatorName?: string;
+  /** Hosted runtime with the /workspace/inputs and /workspace/outputs file convention. */
+  workspaceFiles?: boolean;
 }
 
 function normalizeServerUrl(raw: string): string {
@@ -98,6 +102,8 @@ export function loadBridgeConfig(env: NodeJS.ProcessEnv = process.env): BridgeCo
     preflightCacheMs: parsePreflightCacheMs(env.KIMI_PREFLIGHT_CACHE_MS),
     kimiCodeHome,
     maxWaitMs: parseMaxWaitMs(env.KIMI_MAX_WAIT_MS),
+    coordinatorName: env.KIMI_COORDINATOR_NAME?.trim() || undefined,
+    workspaceFiles: env.KIMI_WORKSPACE_FILES === '1' || undefined,
     stateDir: env.KIMI_BRIDGE_STATE_DIR && env.KIMI_BRIDGE_STATE_DIR.trim().length > 0
       ? env.KIMI_BRIDGE_STATE_DIR.trim()
       : join(homedir(), '.codex-kimi-bridge', 'state'),
