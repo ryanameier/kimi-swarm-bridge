@@ -14,6 +14,7 @@ import { NodeGitInspector, type GitInspector, type GitBaseline, OBJECT_ID_RE } f
 import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
 import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry.js';
 import { readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
+import { getModelPricing } from './model-pricing.js';
 
 export interface FileLister {
   listFiles(baseDir: string, relativeDir: string): Promise<string[]>;
@@ -635,6 +636,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
       ? await readSwarmEvidence({
           kimiCodeHome: deps.config.kimiCodeHome,
           sessionId: delegated.sessionId,
+          pricing: await getModelPricing(),
         })
       : undefined;
     const swarmFields = {
@@ -1177,6 +1179,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     const swarmEvidence = await readSwarmEvidence({
       kimiCodeHome: deps.config.kimiCodeHome,
       sessionId: input.sessionId,
+      pricing: await getModelPricing(),
     });
 
     const result = {

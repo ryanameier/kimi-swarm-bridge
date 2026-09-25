@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readSwarmEvidence } from '../src/swarm-evidence.js';
+import { parseModelPricing } from '../src/model-pricing.js';
 
 const tmpDirs: string[] = [];
 
@@ -77,10 +78,20 @@ describe('readSwarmEvidence', () => {
       },
       modelRequest('main'),
     ]);
-    await writeWire(home, sessionId, 'agent-0', [modelRequest('agent-0')]);
-    await writeWire(home, sessionId, 'agent-1', [modelRequest('agent-1')]);
+    const usage = (agentId: string, inputOther: number, inputCacheRead: number, output: number) => ({
+      type: 'usage.record',
+      agentId,
+      model: 'moonshotai/kimi-k3',
+      usage: { inputOther, inputCacheRead, inputCacheCreation: 0, output },
+    });
+    await writeWire(home, sessionId, 'agent-0', [modelRequest('agent-0'), usage('agent-0', 1_000_000, 0, 0)]);
+    await writeWire(home, sessionId, 'agent-1', [modelRequest('agent-1'), usage('agent-1', 0, 2_000_000, 1_000_000)]);
 
-    const evidence = await readSwarmEvidence({ kimiCodeHome: home, sessionId });
+    const evidence = await readSwarmEvidence({
+      kimiCodeHome: home,
+      sessionId,
+      pricing: { inputPer1M: 3, outputPer1M: 12.5, cachedInputPer1M: 0.5 },
+    });
 
     expect(evidence).toEqual({
       available: true,
@@ -93,6 +104,7 @@ describe('readSwarmEvidence', () => {
       coordinator: {
         agentId: 'main',
         requestCount: 2,
+        usage: { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
         providers: ['openai'],
         models: ['moonshotai/kimi-k3'],
         modelAliases: ['__kimi_env_model__'],
@@ -102,6 +114,7 @@ describe('readSwarmEvidence', () => {
         {
           agentId: 'agent-0',
           requestCount: 1,
+          usage: { inputTokens: 1_000_000, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
           providers: ['openai'],
           models: ['moonshotai/kimi-k3'],
           modelAliases: ['__kimi_env_model__'],
@@ -111,6 +124,7 @@ describe('readSwarmEvidence', () => {
         {
           agentId: 'agent-1',
           requestCount: 1,
+          usage: { inputTokens: 0, cachedInputTokens: 2_000_000, cacheWriteTokens: 0, outputTokens: 1_000_000 },
           providers: ['openai'],
           models: ['moonshotai/kimi-k3'],
           modelAliases: ['__kimi_env_model__'],
@@ -118,7 +132,34 @@ describe('readSwarmEvidence', () => {
           outcome: 'completed',
         },
       ],
+      // 1M uncached × $3 + 2M cached × $0.50 + 1M output × $12.50
+      totalUsage: {
+        requestCount: 4,
+        inputTokens: 1_000_000,
+        cachedInputTokens: 2_000_000,
+        cacheWriteTokens: 0,
+        outputTokens: 1_000_000,
+        estimatedCostUsd: 16.5,
+      },
     });
+  });
+
+  it('finds workers from their agent directories when the swarm result omits them', async () => {
+    const home = await makeHome();
+    const sessionId = 'session_dirs';
+    await writeWire(home, sessionId, 'main', [{ type: 'llm.request', agentId: 'main' }]);
+    await writeWire(home, sessionId, 'agent-0', [{ type: 'llm.request', agentId: 'agent-0' }]);
+    await writeWire(home, sessionId, 'agent-7', [{ type: 'llm.request', agentId: 'agent-7' }]);
+    const evidence = await readSwarmEvidence({ kimiCodeHome: home, sessionId });
+    expect(evidence.workers.map((worker) => worker.agentId)).toEqual(['agent-0', 'agent-7']);
+    expect(evidence.totalUsage?.requestCount).toBe(3);
+  });
+
+  it('reads model prices from an ai& /models listing', () => {
+    const listing = { data: [{ id: 'moonshotai/kimi-k3', input_per_1m: '3.000000', output_per_1m: '12.500000', cached_input_per_1m: '0.500000' }] };
+    expect(parseModelPricing(listing, 'moonshotai/kimi-k3')).toEqual({ inputPer1M: 3, outputPer1M: 12.5, cachedInputPer1M: 0.5 });
+    expect(parseModelPricing(listing, 'other')).toBeUndefined();
+    expect(parseModelPricing({}, 'moonshotai/kimi-k3')).toBeUndefined();
   });
 
   it('does not treat model text as native AgentSwarm evidence', async () => {
