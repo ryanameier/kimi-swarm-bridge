@@ -58,3 +58,11 @@ describe('swarm speed guidance', () => {
     expect(at('deep')).toContain('stop after about 14 tool calls');
   });
 });
+
+describe('worker split for independent research items', () => {
+  it('asks for exactly one worker per item when the items fit under the ceiling', () => {
+    const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 30, concurrency: 30 } });
+    expect(prompt).toContain('use exactly one worker per item and do not group items');
+    expect(prompt).toContain('spread them evenly across the ceiling');
+  });
+});
