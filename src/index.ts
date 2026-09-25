@@ -12,7 +12,7 @@ import { KimiHttpClient } from './kimi/http.js';
 import { KimiClient } from './kimi/client.js';
 import { createToolHandlers } from './tools.js';
 import type { FileTransferConfig } from './file-transfer.js';
-import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, registerFileTools } from './file-tools.js';
+import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, OFFER_KIMI_INSTRUCTIONS, registerFileTools } from './file-tools.js';
 import { registerSwarmSettingsTool } from './swarm-tools.js';
 import { registerModelSettingsTool } from './model-tools.js';
 import { KimiPreflight } from './preflight.js';
@@ -117,8 +117,8 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     jobOwner,
   });
   const server = new McpServer(
-    { name: 'kimi-swarm-bridge', version: '0.4.0' },
-    options.fileTransfer ? { instructions: FILE_HANDOFF_INSTRUCTIONS } : undefined,
+    { name: 'kimi-swarm-bridge', version: '0.5.0' },
+    { instructions: options.fileTransfer ? `${OFFER_KIMI_INSTRUCTIONS}\n\n${FILE_HANDOFF_INSTRUCTIONS}` : OFFER_KIMI_INSTRUCTIONS },
   );
 
   server.registerTool(

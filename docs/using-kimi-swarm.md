@@ -47,6 +47,7 @@ background: Claude checks on them for you, so you can keep chatting or come back
 | "Show my Kimi Swarm agent limit" / "lower my Kimi agent limit to 8" | The most workers Kimi may use on one task. It is a ceiling: Kimi uses fewer when a task doesn't need them. |
 | "Which models can Kimi Swarm use?" | Lists the available AI models with their prices. |
 | "Switch Kimi Swarm to GLM-5.3" / "use a cheaper model for the Kimi workers" | Changes the model for your future tasks. |
+| "Always hand suitable parts to Kimi" / "stop suggesting Kimi" | Claude sometimes offers to give an independent part of your request to Kimi so both parts run at the same time. By default it asks first; you can have it do this automatically or never. |
 
 Your admin sets the upper limits.
 

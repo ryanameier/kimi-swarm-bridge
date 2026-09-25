@@ -144,19 +144,71 @@ export function gateFor(env: EgressEnv): ConcurrencyLimiter | undefined {
 	return env.AIAND_GATE ? (env.AIAND_GATE.get(env.AIAND_GATE.idFromName("org")) as unknown as ConcurrencyLimiter) : undefined;
 }
 
+/** A model request with no response headers after this long is aborted (observed maximum: 14s). */
+export const MODEL_FIRST_BYTE_TIMEOUT_MS = 60_000;
+/** A streaming model response that sends nothing for this long is cut off (observed gaps: seconds). */
+export const MODEL_STALL_TIMEOUT_MS = 90_000;
+
 /**
- * Calls `done` once the response body has been fully sent (or the stream fails).
- * `waitUntil` keeps the invocation alive for it: without it the runtime can end the
- * request as soon as the body is delivered and drop `done`'s own work (the gate release).
+ * Passes the body through and calls `done` once it has been fully sent, failed, or
+ * gone silent for `stallMs` (then the stream is errored so the client retries
+ * instead of waiting forever). `waitUntil` keeps the invocation alive for `done`:
+ * without it the runtime can end the request as soon as the body is delivered and
+ * drop `done`'s own work (the gate release).
  */
-export function whenBodyDone(response: Response, done: () => Promise<void> | void, waitUntil: (promise: Promise<unknown>) => void): Response {
+export function whenBodyDone(
+	response: Response,
+	done: (outcome: "complete" | "stalled" | "failed") => Promise<void> | void,
+	waitUntil: (promise: Promise<unknown>) => void,
+	stallMs = MODEL_STALL_TIMEOUT_MS,
+): Response {
 	if (!response.body) {
-		waitUntil(Promise.resolve(done()));
+		waitUntil(Promise.resolve(done("complete")));
 		return response;
 	}
+	const source = response.body.getReader();
 	const { readable, writable } = new TransformStream();
-	waitUntil(response.body.pipeTo(writable).catch(() => undefined).then(() => done()));
+	const sink = writable.getWriter();
+	const pump = async (): Promise<"complete" | "stalled" | "failed"> => {
+		for (;;) {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const stalled = new Promise<"stalled">((resolve) => {
+				timer = setTimeout(() => resolve("stalled"), stallMs);
+			});
+			const next = await Promise.race([source.read(), stalled]).finally(() => clearTimeout(timer));
+			if (next === "stalled") {
+				const error = new Error(`ai& response stalled: no data for ${stallMs / 1000}s`);
+				await source.cancel(error).catch(() => undefined);
+				await sink.abort(error).catch(() => undefined);
+				return "stalled";
+			}
+			if (next.done) {
+				await sink.close().catch(() => undefined);
+				return "complete";
+			}
+			await sink.write(next.value);
+		}
+	};
+	waitUntil(
+		pump()
+			.catch(async (error) => {
+				await sink.abort(error).catch(() => undefined);
+				return "failed" as const;
+			})
+			.then((outcome) => done(outcome)),
+	);
 	return new Response(readable, response);
+}
+
+/** fetch with an abort once `ms` pass before response headers arrive. */
+export async function fetchWithFirstByteTimeout(request: Request, ms: number, send: (request: Request) => Promise<Response>): Promise<Response> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(new Error(`ai& sent no response within ${ms / 1000}s`)), ms);
+	try {
+		return await send(new Request(request, { signal: controller.signal }));
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 export interface ProxyProps {
@@ -194,9 +246,12 @@ export async function handleEgress(
 		const release = () => (lease ? gate!.release(lease.id).catch((error) => console.error("aiand gate release failed", error)) : Promise.resolve());
 		let response: Response;
 		try {
-			response = await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
+			response = model
+				? await fetchWithFirstByteTimeout(credentialed, MODEL_FIRST_BYTE_TIMEOUT_MS, (req) => fetch(req))
+				: await fetchWithRetry(credentialed, host === BRAVE_HOST, sleep);
 		} catch (error) {
 			waitUntil(release());
+			if (model) console.log(JSON.stringify({ event: "timing", kind: "model", sandbox, outcome: "no-response", ms: Date.now() - started, error: String(error) }));
 			throw error;
 		}
 		// Account-level problems (exhausted credits, revoked key) fail every task; make them visible to admins.
@@ -210,9 +265,9 @@ export async function handleEgress(
 		}
 		const modelName = response.headers.get("x-model") ?? "";
 		const inferenceMs = Number.parseInt(response.headers.get("x-inference-ms") ?? "", 10);
-		return whenBodyDone(response, () => {
+		return whenBodyDone(response, (outcome) => {
 			console.log(JSON.stringify({
-				event: "timing", kind: "model", sandbox, model: modelName, status: response.status,
+				event: "timing", kind: "model", sandbox, model: modelName, status: response.status, outcome,
 				waitMs: lease?.waitMs ?? 0, headersMs, ms: Date.now() - started, inferenceMs: Number.isFinite(inferenceMs) ? inferenceMs : undefined,
 			}));
 			return release();
