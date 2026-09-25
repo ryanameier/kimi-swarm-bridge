@@ -93,6 +93,15 @@ describe("handleEgress", () => {
 		expect(upstream).toHaveLength(0);
 	});
 
+	it("reports account-level upstream errors to admins", async () => {
+		vi.stubGlobal("fetch", async () => new Response("{}", { status: 402 }));
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const { env } = makeEnv();
+		const response = await handleEgress(chat(), env, props, direct);
+		expect(response.status).toBe(402);
+		expect(JSON.parse(error.mock.calls[0][0] as string)).toMatchObject({ event: "egress-upstream-error", host: "api.aiand.com", status: 402 });
+	});
+
 	it("never forwards a disabled Firecrawl key", async () => {
 		stubFetch();
 		const { env } = makeEnv({ FIRECRAWL_API_KEY: "disabled" });

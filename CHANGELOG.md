@@ -19,7 +19,8 @@ isolated workspace, signing in through the organization's identity provider. Adm
   the real keys; containers only hold placeholders.
 - Outbound policy `EGRESS_MODE`: `open` (default), `log` (every outbound HTTP(S) request is
   logged), or `allowlist` (`EGRESS_ALLOWLIST`).
-- Per-employee daily ai& request budget (`AIAND_DAILY_REQUEST_LIMIT`, default 3000).
+- Per-employee daily ai& request budget (`AIAND_DAILY_REQUEST_LIMIT`, default 3000). Account-level
+  ai& or Firecrawl errors (for example exhausted credits) are logged as `egress-upstream-error`.
 - The Worker answers the MCP handshake and tool list from a snapshot, so connecting does not
   wake a sleeping container and sessions survive container restarts.
 - Containers stay awake while Kimi works (up to 6 hours unattended) and sleep after 30 minutes

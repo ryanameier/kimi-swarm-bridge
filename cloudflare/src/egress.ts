@@ -131,7 +131,12 @@ export async function handleEgress(
 			}
 		}
 		if (mode !== "open") logEgress({ sandbox, host, method: request.method, action: "credential" });
-		return fetch(credentialed);
+		const response = await fetch(credentialed);
+		// Account-level problems (exhausted credits, revoked key) fail every task; make them visible to admins.
+		if (response.status === 401 || response.status === 402 || response.status === 403) {
+			console.error(JSON.stringify({ event: "egress-upstream-error", sandbox, host, status: response.status }));
+		}
+		return response;
 	}
 
 	if (mode === "open") return fallback(request);
