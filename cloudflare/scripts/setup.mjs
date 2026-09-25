@@ -27,7 +27,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const TEMPLATE = join(ROOT, 'wrangler.jsonc');
-const DEPLOY_CONFIG = join(ROOT, 'wrangler.deploy.jsonc');
+// The default deployment uses wrangler.deploy.jsonc; others get wrangler.<name>.deploy.jsonc
+// so several deployments (for example a pilot) can live side by side.
+let DEPLOY_CONFIG = join(ROOT, 'wrangler.deploy.jsonc');
 const KV_TITLE = 'OAUTH_KV';
 const INTERNAL_SECRETS = ['BRIDGE_TOKEN', 'COOKIE_ENCRYPTION_KEY', 'ADMIN_TOKEN'];
 
@@ -140,6 +142,7 @@ async function main() {
   const namespaces = wrangler(['kv', 'namespace', 'list'], { json: true }) ?? [];
   // Each deployment gets its own storage; the default worker name keeps the original names.
   const isDefault = workerName === template.name;
+  if (!isDefault) DEPLOY_CONFIG = join(ROOT, `wrangler.${workerName}.deploy.jsonc`);
   const kvTitle = `${workerName}-${KV_TITLE}`;
   let kv = namespaces.find((n) => n.title === kvTitle) ?? (isDefault ? namespaces.find((n) => n.title === KV_TITLE) : undefined);
   if (kv) {
@@ -181,7 +184,7 @@ async function main() {
   }
 
   // 3. Deploy config (account-specific, git-ignored)
-  step(3, 'Writing wrangler.deploy.jsonc');
+  step(3, `Writing ${DEPLOY_CONFIG.slice(ROOT.length + 1)}`);
   const config = { ...template, name: workerName };
   config.kv_namespaces = [{ binding: 'OAUTH_KV', id: kv?.id ?? '<created on a real run>' }];
   config.r2_buckets = [{ binding: 'BACKUP_BUCKET', bucket_name: bucketName }];
@@ -338,8 +341,14 @@ async function main() {
     if (deploy.status !== 0) {
       fail('Deploy failed. Containers need the Workers Paid plan (Workers & Pages → Plans); R2 and Zero Trust must be enabled.');
     }
-    const health = await fetch(`${origin}/.well-known/oauth-authorization-server`);
-    if (!health.ok) fail(`Deployed, but ${origin} is not answering yet (HTTP ${health.status}). Try again in a minute.`);
+    // A new workers.dev address can take a minute or two to start answering.
+    let health;
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      health = await fetch(`${origin}/.well-known/oauth-authorization-server`).catch(() => undefined);
+      if (health?.ok) break;
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+    if (!health?.ok) fail(`Deployed, but ${origin} is not answering yet (HTTP ${health?.status ?? 'no response'}). Try again in a few minutes.`);
     ok(`live at ${origin}`);
   }
 

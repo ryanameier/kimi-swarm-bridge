@@ -88,7 +88,10 @@ overrides them. Run `npm run setup -- --yes`. `--rotate-internal` replaces the g
 `BRIDGE_TOKEN`, `COOKIE_ENCRYPTION_KEY` and `ADMIN_TOKEN`.
 
 Setup writes `wrangler.deploy.jsonc` (account-specific, git-ignored). Later deploys:
-`npm run deploy`.
+`npm run deploy`. Additional deployments on the same account (for example a pilot, with
+`KIMI_WORKER_NAME=kimi-swarm-pilot`) get their own `wrangler.<name>.deploy.jsonc`, sign-in
+storage and backup bucket; add each deployment's `/callback` URL to the Access application's
+redirect URLs.
 
 Give employees [using-kimi-swarm.md](using-kimi-swarm.md), a one-page guide to using Kimi Swarm
 from Claude.
