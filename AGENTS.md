@@ -211,6 +211,7 @@ The `codex-kimi-bridge-local` marketplace id is retained for compatibility with 
 - `src/egress.ts` + `src/container-proxy.ts`: outbound interception; attaches the ai&/Brave keys (Brave requests retried on 429), enforces the daily budget and `EGRESS_MODE`.
 - `src/browser.ts`: headless page rendering (Cloudflare Browser Rendering) for `http://browser.internal/render`.
 - Root `src/web-tools.ts`: the `web` MCP server Kimi uses (`web_search` via Brave, `read_page` with a small reader model).
+- Root `src/assemble-sections.ts`: the `kimi-assemble` command in the image. The swarm prompt has workers write `.sections/NN-topic.md` (table rows, then sections) and the coordinator write `_head.md`/`_tail.md`; the command joins them without a model.
 - `scripts/setup.mjs` (`npm run setup`) and `scripts/smoke.mjs` (`npm run smoke`).
 
 Invariants:

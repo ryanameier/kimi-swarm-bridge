@@ -27,7 +27,8 @@ Web research briefs, with Kimi Swarm (GLM-5.3 on ai&) and Claude (Claude Code, O
 | 12 platforms, 7 fields | 12 | 2m05s | 1m39s ¹ | — | $0.92 / — |
 | 30 managed Postgres providers | 10 | 3m46s | 1m31s | 11 / 13 | — / — |
 | 30 email APIs, with cost calculations | — | 4m46s | 1m59s | 7 / 45 | $1.42 / — |
-| **30 vector databases, every cell required** | **15** | **4m26s** | **3m56s** | **17 / 14** | **$2.30 / ~$3–5 ²** |
+| 30 vector databases, every cell required | 15 | 4m26s | 3m56s | 17 / 14 | $2.30 / ~$3–5 ² |
+| **Same brief, after the v0.5.0 speed changes** | **15** | **4m24s** | **3m56s** | **7 / 14** | **$1.63 / ~$3–5 ²** |
 
 ¹ Separate run of the same brief; Claude's simultaneous rerun reused its earlier work (28s), so it isn't a fair comparison.
 ² Measured from the account's usage before and after. That session carried a long context, which raises Claude's cost.
@@ -36,8 +37,8 @@ Web research briefs, with Kimi Swarm (GLM-5.3 on ai&) and Claude (Claude Code, O
 What the numbers show:
 
 - **Short briefs:** Claude is faster. Kimi has a fixed overhead of about 2 minutes (starting the swarm and merging results) that small jobs can't hide.
-- **Completeness:** in normal runs Kimi left far fewer cells empty (7 vs 45 on the email brief, 11 vs 13 on Postgres), because each worker keeps searching its own items. When both were told to fill every cell, they finished about level (17 vs 14 empty cells out of 150, slightly in Claude's favour).
-- **Large, complete briefs:** the speed gap closes. Claude's extra checks ran one after another while Kimi's ran across 15 agents in parallel: 4m26s vs 3m56s, with Kimi costing roughly half.
+- **Completeness:** in normal runs Kimi left far fewer cells empty (7 vs 45 on the email brief, 11 vs 13 on Postgres), because each worker keeps searching its own items. When both were told to fill every cell, the first run finished about level (17 vs 14 empty cells out of 150); after the v0.5.0 changes Kimi left 7.
+- **Large, complete briefs:** the speed gap closes. Claude's extra checks ran one after another while Kimi's ran across 15 agents in parallel: 4m24s vs 3m56s, with Kimi costing about half ($1.63).
 - **Background work:** Kimi runs in its own sandbox, so Claude stays free for other work while a swarm runs.
 
 Scaling beyond these tests: The agent cap goes up to 128 and can be raised live with no restart (`POST /admin/sandboxes/<id>/limits`); parallelism is set by `SWARM_CONCURRENCY` (20 here), which takes effect when the container restarts. The limit in practice is ai&'s per-organization rate limit (about 100 requests per window, shared by every key in the org); the 15-agent run used 158 requests in about 4 minutes. We expect Kimi to pull ahead on longer, wider jobs if the organization's ai& rate limit is raised, but that is a projection, not yet measured.
