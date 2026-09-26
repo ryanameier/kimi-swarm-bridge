@@ -15,7 +15,7 @@ The project began as a fork of [`ximenchuifeng/codex-kimi-bridge`](https://githu
 
 ## Organization deployment
 
-To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md). Share [docs/using-kimi-swarm.md](docs/using-kimi-swarm.md) with employees. Optionally share the [Kimi Swarm skill](skills/kimi-swarm/SKILL.md) too: with it, Claude offers to hand big, independent parts of a request to Kimi without being asked.
+To give every employee Kimi Swarm in Claude — per-employee isolated workspaces, sign-in through your identity provider, file upload/download, and persistence — deploy the Cloudflare edition: see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md). Share [docs/using-kimi-swarm.md](docs/using-kimi-swarm.md) with employees. Also share the [Kimi Swarm skill](skills/kimi-swarm/SKILL.md) (`kimi-swarm.zip` on each [release](https://github.com/ryanameier/kimi-swarm-bridge/releases); Team and Enterprise owners can add it for everyone). With it, Claude offers to hand big, independent parts of a request to Kimi without being asked.
 
 ## Benchmarks
 
@@ -41,7 +41,7 @@ What the numbers show:
 - **Large, complete briefs:** the speed gap closes. Claude's extra checks ran one after another while Kimi's ran across 15 agents in parallel: 4m24s vs 3m56s, with Kimi costing about half ($1.63).
 - **Background work:** Kimi runs in its own sandbox, so Claude stays free for other work while a swarm runs.
 
-Scaling beyond these tests: The agent cap goes up to 128 and can be raised live with no restart (`POST /admin/sandboxes/<id>/limits`); parallelism is set by `SWARM_CONCURRENCY` (20 here), which takes effect when the container restarts. The limit in practice is ai&'s per-organization rate limit (about 100 requests per window, shared by every key in the org); the 15-agent run used 158 requests in about 4 minutes. We expect Kimi to pull ahead on longer, wider jobs if the organization's ai& rate limit is raised, but that is a projection, not yet measured.
+Scaling beyond these tests: The agent cap goes up to 128 and can be raised live with no restart (`POST /admin/sandboxes/<id>/limits`); parallelism is set by `SWARM_CONCURRENCY` (20 here), which takes effect when the container restarts. The limit in practice is ai&'s per-organization limit on requests in flight at once, shared by every key in the org (100 on a new account, 1000 after the first payment at the time of writing). The Worker keeps the whole deployment under `AIAND_CONCURRENCY_LIMIT` so a busy organization queues briefly instead of hitting errors; a 20-worker run peaked at about 70 requests in flight. We expect Kimi to pull ahead on longer, wider jobs, but that is a projection, not yet measured.
 
 Moonshot's own results for Agent Swarm (Kimi K2.5, not these tests) point the same way. In wide-search tasks, the swarm needed 3–4.5× fewer critical steps than a single Kimi agent, which Moonshot reports as up to 4.5× less wall-clock time. It also scored higher than Claude Opus 4.5 on BrowseComp and WideSearch, which measure accuracy rather than speed ([Kimi K2.5 tech blog](https://www.kimi.ai/blog/kimi-k2-5)). Those runs used Moonshot's model and harness, with up to 100 sub-agents; this bridge defaults to GLM-5.3 and a cap of 20.
 
@@ -395,7 +395,7 @@ Validated so far:
 - ordinary Kimi inference through ai&
 - `zai-org/glm-5.3` (default) and `moonshotai/kimi-k3`
 - native Kimi AgentSwarm
-- up to 15 concurrent native workers in a single swarm
+- up to 20 concurrent native workers in a single swarm (one per researched item)
 - coordinator and workers all using ai&
 - cancellation
 - authenticated Streamable HTTP MCP
@@ -415,6 +415,9 @@ Validated on the Cloudflare edition ([docs/cloudflare-deploy.md](docs/cloudflare
 - per-employee agent ceiling set from chat
 - connector handshake and tool list served without waking a sleeping container
 - research, repository, download and coding tasks with web access
+- organization-wide ai& concurrency limit, changeable live
+- per-worker research time budget, so one slow worker doesn't hold up a swarm
+- the Kimi Swarm skill in the Claude desktop app: Claude offered Kimi for the independent half of a request, delegated on "yes" and combined both parts (the 20-item half took Kimi 2m44s)
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
