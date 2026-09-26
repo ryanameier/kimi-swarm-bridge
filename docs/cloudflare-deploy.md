@@ -186,6 +186,12 @@ Pages built with JavaScript are rendered by Cloudflare Browser Rendering (10 bro
 month included with Workers Paid, then $0.09 per hour). Search requests that hit Brave's rate
 limit are retried by the Worker, so workers never wait them out.
 
+A swarm finishes when its slowest worker does, so each worker's research is timed: workers
+label their web calls with their item, and after 2 minutes the tools tell that worker to write up
+what it has (marking gaps as "not found"); after 3 minutes they stop doing new lookups for it.
+The container settings `KIMI_WORKER_SOFT_BUDGET_S` and `KIMI_WORKER_HARD_BUDGET_S` change these
+(0 turns either off).
+
 ## Limits
 
 | Layer | Limit |

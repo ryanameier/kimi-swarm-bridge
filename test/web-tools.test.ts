@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { braveSearch, formatResults, getPageText, htmlToText, readPage, settleWithGrace } from '../src/web-tools.js';
+import { braveSearch, budgetNotice, formatResults, getPageText, htmlToText, readPage, settleWithGrace, WorkerClock } from '../src/web-tools.js';
 
 const longText = 'Pricing details. '.repeat(60);
 const html = `<html><head><title>Fly Pricing &amp; Plans</title><script>var x=1</script><style>.a{}</style></head>
@@ -119,5 +119,66 @@ describe('settleWithGrace', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('WorkerClock', () => {
+  it('times each worker label separately and moves from ok to soft to hard', () => {
+    let now = 0;
+    const clock = new WorkerClock(120_000, 180_000, () => now);
+    expect(clock.check('Azure AI').state).toBe('ok');
+    now = 30_000;
+    expect(clock.check('Groq').state).toBe('ok');
+    now = 125_000;
+    expect(clock.check('azure ai')).toEqual({ state: 'soft', elapsedS: 125 });
+    expect(clock.check('Groq').state).toBe('ok');
+    now = 185_000;
+    expect(clock.check('Azure AI').state).toBe('hard');
+  });
+
+  it('ignores calls without a label and restarts a label idle for 10 minutes', () => {
+    let now = 0;
+    const clock = new WorkerClock(1_000, 2_000, () => now);
+    expect(clock.check(undefined)).toEqual({ state: 'ok', elapsedS: 0 });
+    clock.check('OpenAI');
+    now = 11 * 60_000;
+    expect(clock.check('OpenAI').state).toBe('ok');
+  });
+
+  it('can be turned off and reads its budgets from the environment', () => {
+    let now = 0;
+    const off = WorkerClock.fromEnv({ KIMI_WORKER_SOFT_BUDGET_S: '0', KIMI_WORKER_HARD_BUDGET_S: '0' });
+    off.check('x');
+    expect(off.check('x').state).toBe('ok');
+    const custom = new WorkerClock(5_000, 0, () => now);
+    custom.check('y');
+    now = 60_000;
+    expect(custom.check('y').state).toBe('soft');
+  });
+
+  it('tells the worker what to do at each stage', () => {
+    expect(budgetNotice('soft', 130)).toContain('write your section now with what you have');
+    expect(budgetNotice('hard', 190)).toContain('No new lookups were done');
+  });
+});
+
+describe('web tools with a worker label', () => {
+  it('refuses new lookups once a worker is past its hard budget', async () => {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const { createWebToolsServer } = await import('../src/web-tools.js');
+    const fetchImpl = vi.fn(async () => jsonResponse({ web: { results: [{ title: 'T', url: 'https://e.com', description: 'd' }] } }));
+    const server = createWebToolsServer({ BRAVE_API_KEY: 'k', KIMI_WORKER_SOFT_BUDGET_S: '0', KIMI_WORKER_HARD_BUDGET_S: '0.001' }, fetchImpl as never);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 't', version: '1' });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    await client.callTool({ name: 'web_search', arguments: { query: 'x', worker: 'Azure AI' } });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const calls = fetchImpl.mock.calls.length;
+    const result = await client.callTool({ name: 'web_search', arguments: { query: 'y', worker: 'Azure AI' } });
+    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('Research time is up');
+    expect(fetchImpl.mock.calls.length).toBe(calls);
+    const unlabeled = await client.callTool({ name: 'web_search', arguments: { query: 'z' } });
+    expect((unlabeled.content as Array<{ text: string }>)[0]!.text).toContain('https://e.com');
   });
 });

@@ -73,6 +73,56 @@ export interface WebToolsEnv {
   KIMI_MODEL_API_KEY?: string;
   KIMI_READER_MODEL?: string;
   KIMI_BROWSER_RENDERING?: string;
+  /** Seconds after a worker's first web call before results tell it to wrap up (default 120). */
+  KIMI_WORKER_SOFT_BUDGET_S?: string;
+  /** Seconds after which new lookups for that worker are refused (default 180, 0 = never). */
+  KIMI_WORKER_HARD_BUDGET_S?: string;
+}
+
+/** A worker idle this long starts a fresh clock (a later task reusing the same label). */
+const WORKER_CLOCK_RESET_MS = 10 * 60_000;
+
+export type BudgetState = 'ok' | 'soft' | 'hard';
+
+/**
+ * Per-worker research clocks. All AgentSwarm workers share this one process, and
+ * Kimi's tool calls do not say which worker is calling, so workers pass their own
+ * label (the `worker` argument). The swarm waits for its slowest worker; past the
+ * soft budget results ask the worker to write up what it has, and past the hard
+ * budget new lookups are refused.
+ */
+export class WorkerClock {
+  private readonly started = new Map<string, { first: number; last: number }>();
+
+  constructor(private readonly softMs: number, private readonly hardMs: number, private readonly now: () => number = Date.now) {}
+
+  static fromEnv(env: WebToolsEnv): WorkerClock {
+    const seconds = (raw: string | undefined, fallback: number) => {
+      const value = Number.parseFloat(raw ?? '');
+      return Number.isFinite(value) && value >= 0 ? value : fallback;
+    };
+    return new WorkerClock(seconds(env.KIMI_WORKER_SOFT_BUDGET_S, 120) * 1000, seconds(env.KIMI_WORKER_HARD_BUDGET_S, 180) * 1000);
+  }
+
+  check(worker: string | undefined): { state: BudgetState; elapsedS: number } {
+    const key = worker?.trim().toLowerCase();
+    if (!key) return { state: 'ok', elapsedS: 0 };
+    const now = this.now();
+    let entry = this.started.get(key);
+    if (!entry || now - entry.last > WORKER_CLOCK_RESET_MS) entry = { first: now, last: now };
+    entry.last = now;
+    this.started.set(key, entry);
+    const elapsed = now - entry.first;
+    const state: BudgetState = this.hardMs > 0 && elapsed >= this.hardMs ? 'hard' : this.softMs > 0 && elapsed >= this.softMs ? 'soft' : 'ok';
+    return { state, elapsedS: Math.round(elapsed / 1000) };
+  }
+}
+
+export function budgetNotice(state: BudgetState, elapsedS: number): string {
+  if (state === 'hard') {
+    return `[Research time is up (${elapsedS}s). No new lookups were done. Write your section now with what you have, mark anything still missing as "not found", and finish; the rest of the swarm is waiting for you.]`;
+  }
+  return `[You have been researching for ${elapsedS}s and the rest of the swarm is waiting. Use these results, then write your section now with what you have, marking anything still missing as "not found".]`;
 }
 
 export interface SearchResult {
@@ -235,6 +285,8 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
   const server = new McpServer({ name: 'web', version: '1.0.0' });
   const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
   const failure = (error: unknown) => ({ ...text(error instanceof Error ? error.message : String(error)), isError: true });
+  const clock = WorkerClock.fromEnv(env);
+  const workerArg = z.string().optional().describe('Your worker label (the item you were assigned, e.g. "Azure AI"). Pass the same label on every call.');
 
   server.registerTool(
     'web_search',
@@ -244,11 +296,14 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
         queries: z.array(z.string().min(1)).min(1).max(10).optional(),
         query: z.string().min(1).optional(),
         count: z.number().int().min(1).max(20).optional().describe('Results per query, default 6'),
+        worker: workerArg,
       },
     },
-    async ({ queries, query, count }) => {
+    async ({ queries, query, count, worker }) => {
       const all = [...(queries ?? []), ...(query ? [query] : [])];
       if (all.length === 0) return failure(new Error('Pass query or queries.'));
+      const budget = clock.check(worker);
+      if (budget.state === 'hard') return text(budgetNotice('hard', budget.elapsedS));
       const sections = await Promise.all(all.map(async (q) => {
         try {
           return `## ${q}\n${formatResults(await braveSearch(q, count ?? 6, env, fetchImpl))}`;
@@ -256,7 +311,8 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
           return `## ${q}\nSearch failed: ${error instanceof Error ? error.message : String(error)}`;
         }
       }));
-      return text(sections.join('\n\n'));
+      const body = sections.join('\n\n');
+      return text(budget.state === 'soft' ? `${budgetNotice('soft', budget.elapsedS)}\n\n${body}` : body);
     },
   );
 
@@ -268,11 +324,14 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
         pages: z.array(z.object({ url: z.string().url(), question: z.string().optional() })).min(1).max(10).optional(),
         url: z.string().url().optional(),
         question: z.string().optional().describe('What to extract (single-page form)'),
+        worker: workerArg,
       },
     },
-    async ({ pages, url, question }) => {
+    async ({ pages, url, question, worker }) => {
       const all = [...(pages ?? []), ...(url ? [{ url, question }] : [])];
       if (all.length === 0) return failure(new Error('Pass url or pages.'));
+      const budget = clock.check(worker);
+      if (budget.state === 'hard') return text(budgetNotice('hard', budget.elapsedS));
       // One slow page must not hold up the whole batch.
       const results = await settleWithGrace(
         all.map((page) => async () => {
@@ -285,7 +344,8 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
         BATCH_GRACE_MS,
         (index) => `Source: ${all[index]!.url}\n[skipped: still loading ${BATCH_GRACE_MS / 1000}s after the rest of the batch finished; read it on its own if it matters]`,
       );
-      return text(results.join('\n\n---\n\n'));
+      const body = results.join('\n\n---\n\n');
+      return text(budget.state === 'soft' ? `${budgetNotice('soft', budget.elapsedS)}\n\n${body}` : body);
     },
   );
 

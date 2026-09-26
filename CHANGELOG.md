@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Per-worker research time budget: workers label their `web_search` and `read_page` calls with
+  their item; after 120s the results ask that worker to write up what it has, and after 180s new
+  lookups are refused (`KIMI_WORKER_SOFT_BUDGET_S`, `KIMI_WORKER_HARD_BUDGET_S`, 0 = off). In a
+  live 20-worker run, 19 workers finished within about 2.5 minutes and one took about 2 more.
+- Prompt: if the coordinator needs the workers' details, it reads all section files in one shell
+  command instead of one at a time (seen live: about 20 separate reads, 1.5–2 minutes).
 - Prompt: after the workers finish, the coordinator writes the summary and recommendations itself
   instead of launching one more agent to parse and finish the report (seen in a live run: 20
   workers done in about 2 minutes, then a single finishing agent ran alone for 5+ minutes).

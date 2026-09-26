@@ -73,3 +73,12 @@ describe('finishing after the swarm', () => {
     expect(prompt).toContain('do not launch another Agent or AgentSwarm to parse, merge, finish or check their files');
   });
 });
+
+describe('worker time budget and finishing reads', () => {
+  it('asks workers to label their web calls and the coordinator to read sections in one command', () => {
+    const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 20, concurrency: 20 } });
+    expect(prompt).toContain('pass worker: "<its item>"');
+    expect(prompt).toContain('read all the section files in one shell command');
+    expect(prompt).toContain('never one file at a time');
+  });
+});
