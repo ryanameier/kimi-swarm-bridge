@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 (2026-09-26)
 
 - Per-worker research time budget: workers label their `web_search` and `read_page` calls with
   their item; after 120s the results ask that worker to write up what it has, and after 180s new
