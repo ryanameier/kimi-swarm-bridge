@@ -77,6 +77,25 @@ export interface WebToolsEnv {
   KIMI_WORKER_SOFT_BUDGET_S?: string;
   /** Seconds after which new lookups for that worker are refused (default 180, 0 = never). */
   KIMI_WORKER_HARD_BUDGET_S?: string;
+  /** Brave searches each labelled worker may run (default 6, 0 = unlimited). */
+  KIMI_WORKER_SEARCH_BUDGET?: string;
+}
+
+/** Queries run per web_search call; extra queries in one call are dropped (each query is a billed Brave request). */
+export const MAX_QUERIES_PER_CALL = 4;
+
+/** Lower-cases and collapses whitespace so near-identical queries count once. */
+export function uniqueQueries(queries: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const query of queries) {
+    const key = query.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      out.push(query.trim());
+    }
+  }
+  return out;
 }
 
 /** A worker idle this long starts a fresh clock (a later task reusing the same label). */
@@ -92,16 +111,36 @@ export type BudgetState = 'ok' | 'soft' | 'hard';
  * budget new lookups are refused.
  */
 export class WorkerClock {
-  private readonly started = new Map<string, { first: number; last: number }>();
+  private readonly started = new Map<string, { first: number; last: number; searches: number }>();
 
-  constructor(private readonly softMs: number, private readonly hardMs: number, private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly softMs: number,
+    private readonly hardMs: number,
+    private readonly now: () => number = Date.now,
+    private readonly searchBudget = 0,
+  ) {}
 
   static fromEnv(env: WebToolsEnv): WorkerClock {
     const seconds = (raw: string | undefined, fallback: number) => {
       const value = Number.parseFloat(raw ?? '');
       return Number.isFinite(value) && value >= 0 ? value : fallback;
     };
-    return new WorkerClock(seconds(env.KIMI_WORKER_SOFT_BUDGET_S, 120) * 1000, seconds(env.KIMI_WORKER_HARD_BUDGET_S, 180) * 1000);
+    return new WorkerClock(
+      seconds(env.KIMI_WORKER_SOFT_BUDGET_S, 120) * 1000,
+      seconds(env.KIMI_WORKER_HARD_BUDGET_S, 180) * 1000,
+      Date.now,
+      Math.floor(seconds(env.KIMI_WORKER_SEARCH_BUDGET, 6)),
+    );
+  }
+
+  /** How many of `requested` searches this worker may still run; unlabelled calls are not limited. */
+  allowSearches(worker: string | undefined, requested: number): { allowed: number; used: number; budget: number } {
+    const key = worker?.trim().toLowerCase();
+    const entry = key ? this.started.get(key) : undefined;
+    if (!entry || this.searchBudget <= 0) return { allowed: requested, used: 0, budget: 0 };
+    const allowed = Math.max(0, Math.min(requested, this.searchBudget - entry.searches));
+    entry.searches += allowed;
+    return { allowed, used: entry.searches, budget: this.searchBudget };
   }
 
   check(worker: string | undefined): { state: BudgetState; elapsedS: number } {
@@ -109,7 +148,7 @@ export class WorkerClock {
     if (!key) return { state: 'ok', elapsedS: 0 };
     const now = this.now();
     let entry = this.started.get(key);
-    if (!entry || now - entry.last > WORKER_CLOCK_RESET_MS) entry = { first: now, last: now };
+    if (!entry || now - entry.last > WORKER_CLOCK_RESET_MS) entry = { first: now, last: now, searches: 0 };
     entry.last = now;
     this.started.set(key, entry);
     const elapsed = now - entry.first;
@@ -291,7 +330,7 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
   server.registerTool(
     'web_search',
     {
-      description: 'Search the web. Pass several queries at once to run them in parallel. Returns titles, URLs and snippets.',
+      description: 'Search the web. Pass up to 4 specific queries at once to run them in parallel; each query is a paid search, so prefer a few precise queries, and read a page directly with read_page when you already know its URL. Returns titles, URLs and snippets.',
       inputSchema: {
         queries: z.array(z.string().min(1)).min(1).max(10).optional(),
         query: z.string().min(1).optional(),
@@ -300,10 +339,17 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
       },
     },
     async ({ queries, query, count, worker }) => {
-      const all = [...(queries ?? []), ...(query ? [query] : [])];
-      if (all.length === 0) return failure(new Error('Pass query or queries.'));
+      const requested = uniqueQueries([...(queries ?? []), ...(query ? [query] : [])]);
+      if (requested.length === 0) return failure(new Error('Pass query or queries.'));
       const budget = clock.check(worker);
       if (budget.state === 'hard') return text(budgetNotice('hard', budget.elapsedS));
+      const perCall = requested.slice(0, MAX_QUERIES_PER_CALL);
+      const quota = clock.allowSearches(worker, perCall.length);
+      const all = perCall.slice(0, quota.allowed);
+      const notes: string[] = [];
+      if (requested.length > perCall.length) notes.push(`[Only the first ${MAX_QUERIES_PER_CALL} queries were run; each query is a paid search. Skipped: ${requested.slice(MAX_QUERIES_PER_CALL).join('; ')}]`);
+      if (all.length < perCall.length) notes.push(`[Search budget used (${quota.budget} searches for this worker). Skipped: ${perCall.slice(all.length).join('; ')}. Read the pages you already found with read_page, or write your section with what you have.]`);
+      if (all.length === 0) return text(notes.join('\n'));
       const sections = await Promise.all(all.map(async (q) => {
         try {
           return `## ${q}\n${formatResults(await braveSearch(q, count ?? 6, env, fetchImpl))}`;
@@ -311,7 +357,7 @@ export function createWebToolsServer(env: WebToolsEnv = process.env, fetchImpl: 
           return `## ${q}\nSearch failed: ${error instanceof Error ? error.message : String(error)}`;
         }
       }));
-      const body = sections.join('\n\n');
+      const body = [...notes, sections.join('\n\n')].join('\n\n');
       return text(budget.state === 'soft' ? `${budgetNotice('soft', budget.elapsedS)}\n\n${body}` : body);
     },
   );

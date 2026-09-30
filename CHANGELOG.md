@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Brave search savings: at most 4 queries per `web_search` call, duplicate queries dropped, and a
+  per-worker search budget (`KIMI_WORKER_SEARCH_BUDGET`, default 6, 0 = unlimited) after which
+  the worker is told to read the pages it already found. Workers read known sites directly
+  instead of searching for them. Earlier 30-item runs made about 135 searches (about $0.68).
+- Prompt: tasks that must find N items meeting criteria collect 2–3× candidates in the first
+  swarm, run at most one follow-up swarm, then report how many qualify and the near-misses
+  (a live "find 20 ERP companies" run had used four swarm rounds and was still searching at 21
+  minutes). Provided candidates or data are verified and extended rather than rediscovered.
+- Skill: before delegating, Claude checks its other connected tools for a cheaper source of
+  starting data (for example a company database such as FullEnrich), asks before spending the
+  user's credits, and gives Kimi the results to verify and extend.
+
 ## 0.5.1 (2026-09-26)
 
 - Per-worker research time budget: workers label their `web_search` and `read_page` calls with

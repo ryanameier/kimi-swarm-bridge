@@ -82,3 +82,18 @@ describe('worker time budget and finishing reads', () => {
     expect(prompt).toContain('never one file at a time');
   });
 });
+
+describe('search cost and discovery guidance', () => {
+  const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 20, concurrency: 20 } });
+
+  it('asks workers for a few precise queries and direct page reads', () => {
+    expect(prompt).toContain('one web_search call with 2 to 4 precise queries');
+    expect(prompt).toContain('read that page directly with read_page instead of searching for it');
+  });
+
+  it('keeps find-N-items tasks to one main round plus at most one follow-up', () => {
+    expect(prompt).toContain('collect about two to three times as many candidates as needed');
+    expect(prompt).toContain('Run at most one follow-up AgentSwarm');
+    expect(prompt).toContain('start from them and verify or extend them instead of searching from scratch');
+  });
+});

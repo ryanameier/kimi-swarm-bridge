@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { braveSearch, budgetNotice, formatResults, getPageText, htmlToText, readPage, settleWithGrace, WorkerClock } from '../src/web-tools.js';
+import { braveSearch, budgetNotice, formatResults, getPageText, htmlToText, readPage, settleWithGrace, uniqueQueries, WorkerClock } from '../src/web-tools.js';
 
 const longText = 'Pricing details. '.repeat(60);
 const html = `<html><head><title>Fly Pricing &amp; Plans</title><script>var x=1</script><style>.a{}</style></head>
@@ -180,5 +180,46 @@ describe('web tools with a worker label', () => {
     expect(fetchImpl.mock.calls.length).toBe(calls);
     const unlabeled = await client.callTool({ name: 'web_search', arguments: { query: 'z' } });
     expect((unlabeled.content as Array<{ text: string }>)[0]!.text).toContain('https://e.com');
+  });
+});
+
+describe('Brave search savings', () => {
+  it('drops duplicate queries that differ only in case or spacing', () => {
+    expect(uniqueQueries(['Odoo pricing', ' odoo  PRICING ', 'Odoo licence', ''])).toEqual(['Odoo pricing', 'Odoo licence']);
+  });
+
+  async function connect(env: Record<string, string>) {
+    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
+    const { createWebToolsServer } = await import('../src/web-tools.js');
+    const fetchImpl = vi.fn(async () => jsonResponse({ web: { results: [{ title: 'T', url: 'https://e.com', description: 'd' }] } }));
+    const server = createWebToolsServer({ BRAVE_API_KEY: 'k', ...env }, fetchImpl as never);
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 't', version: '1' });
+    await Promise.all([server.connect(a), client.connect(b)]);
+    const search = async (args: Record<string, unknown>) =>
+      ((await client.callTool({ name: 'web_search', arguments: args })).content as Array<{ text: string }>)[0]!.text;
+    return { fetchImpl, search };
+  }
+
+  it('runs at most 4 queries per call and says which were skipped', async () => {
+    const { fetchImpl, search } = await connect({});
+    const text = await search({ queries: ['a', 'b', 'c', 'd', 'e', 'f'] });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(text).toContain('Only the first 4 queries were run');
+    expect(text).toContain('Skipped: e; f');
+  });
+
+  it('stops a labelled worker at its search budget but not unlabelled calls', async () => {
+    const { fetchImpl, search } = await connect({ KIMI_WORKER_SEARCH_BUDGET: '3' });
+    await search({ queries: ['a', 'b'], worker: 'SAP' });
+    const second = await search({ queries: ['c', 'd'], worker: 'SAP' });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(second).toContain('Search budget used (3 searches for this worker). Skipped: d.');
+    const third = await search({ query: 'e', worker: 'SAP' });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(third).toContain('Search budget used');
+    await search({ queries: ['x', 'y'] });
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 });
