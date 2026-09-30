@@ -43,13 +43,14 @@ Then stop and wait for the answer.
 
 ## When the user says yes (or offerKimi is auto)
 
-1. **Start Kimi first.** Call `kimi_delegate_task` with `cwd: /workspace` and a self-contained brief:
+1. **Check your other tools first.** Kimi can only search the web, and every search costs money. Kimi cannot use your connectors. If one of your other connected tools can supply the starting data more cheaply or more accurately, use it before delegating and give Kimi the result to verify and extend instead of discovering everything from scratch. Examples: a company or contact database (such as FullEnrich) for lists of companies matching a region, industry and size; a CRM; the user's own documents. Use tools that are free for this kind of lookup without asking; ask the user first before anything that spends their credits (for example contact enrichment). Pass small results in the brief and larger ones as an uploaded file (see the connector's file instructions).
+2. **Start Kimi first.** Call `kimi_delegate_task` with `cwd: /workspace` and a self-contained brief:
    - what to produce, the exact fields, format and scope;
-   - any context from this conversation that Kimi needs (it cannot see the chat);
+   - any context from this conversation that Kimi needs (it cannot see the chat), including any candidates or data you gathered with other tools and what Kimi should verify or add to them;
    - if the user wants a file, ask Kimi to save it in `/workspace/outputs`.
    `kimi_delegate_task` returns immediately with a `sessionId`; Kimi keeps working.
-2. **Do your own part** while Kimi works.
-3. **Collect Kimi's result.** Call `kimi_wait_until_idle` with the `sessionId`, and call it again while it returns a timeout (the job is still running). Then call `kimi_get_handoff`.
-4. **Combine both parts** into one answer. Say which part came from Kimi. If Kimi made files, bring them into the conversation with `kimi_create_download_links`.
+3. **Do your own part** while Kimi works.
+4. **Collect Kimi's result.** Call `kimi_wait_until_idle` with the `sessionId`, and call it again while it returns a timeout (the job is still running). Then call `kimi_get_handoff`.
+5. **Combine both parts** into one answer. Say which part came from Kimi. If Kimi made files, bring them into the conversation with `kimi_create_download_links`.
 
 If the user attached files that Kimi needs, follow the Kimi Swarm connector's file instructions (`kimi_create_upload_links`) before delegating.

@@ -192,6 +192,14 @@ what it has (marking gaps as "not found"); after 3 minutes they stop doing new l
 The container settings `KIMI_WORKER_SOFT_BUDGET_S` and `KIMI_WORKER_HARD_BUDGET_S` change these
 (0 turns either off).
 
+Each Brave query is billed ($5 per 1,000), so searches are rationed: a `web_search` call runs at
+most 4 queries (duplicates dropped), and each worker gets 6 searches
+(`KIMI_WORKER_SEARCH_BUDGET`, 0 = unlimited) before it is told to read the pages it already
+found. Workers read known sites (a vendor's pricing page) directly instead of searching for them.
+With the Kimi Swarm skill, Claude also uses cheaper sources it has (for example a company
+database connector) to give Kimi a starting list to verify, instead of Kimi discovering it with
+searches.
+
 ## Limits
 
 | Layer | Limit |
