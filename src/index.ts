@@ -15,6 +15,9 @@ import type { FileTransferConfig } from './file-transfer.js';
 import { FILE_HANDOFF_INSTRUCTIONS, filePanelEnabled, OFFER_KIMI_INSTRUCTIONS, registerFileTools } from './file-tools.js';
 import { registerSwarmSettingsTool } from './swarm-tools.js';
 import { registerModelSettingsTool } from './model-tools.js';
+import { MODEL_TIERS } from './model-tiers.js';
+
+const MODEL_TIER_DESCRIPTION = 'Model choice for this task when the user has not fixed models in kimi_model_settings: pick from what the task needs. economy (lowest cost: low-cost worker models) for simple, well-specified work such as lookups, checking or extracting data from a provided list, formatting or mechanical screens; balanced (default) for typical research and comparison that needs judgment; premium (several times the cost: a stronger coordinator) for hard reasoning, complex synthesis or high-stakes and coding work. If the user asks for cheaper, faster or higher quality, follow that. The result reports the models used.';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {
@@ -135,6 +138,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
         depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
+        modelTier: z.enum(MODEL_TIERS).optional().describe(MODEL_TIER_DESCRIPTION),
       },
     },
     async (input) => runToolHandler(() => handlers.kimi_delegate_task(input)),
@@ -155,6 +159,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to use the centrally configured model binding; do not pass a raw provider model ID unless Kimi exposes it as an alias.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to use the bridge default; the managed pilot is configured for high thinking.'),
         depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
+        modelTier: z.enum(MODEL_TIERS).optional().describe(MODEL_TIER_DESCRIPTION),
         dedupe: z.object({
           titleContains: z.string().describe('Case-insensitive substring used to find an existing recent session before creating a new one. Use a task-specific title fragment.'),
           status: z.string().optional().describe('Optional exact Kimi session-status filter, such as running, idle, awaiting_approval, awaiting_question, aborted, or failed.'),
@@ -217,6 +222,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         model: z.string().optional().describe('Configured Kimi model alias. In the managed ai& deployment omit this field to keep the centrally configured model binding.'),
         thinking: z.string().optional().describe('Optional Kimi thinking setting. Omit to keep the bridge default.'),
         depth: z.enum(['quick', 'standard', 'deep']).optional().describe('Research depth: quick (one source per item), standard (default; one or two authoritative sources, gaps marked not documented), deep (cross-checked, thorough).'),
+        modelTier: z.enum(MODEL_TIERS).optional().describe(MODEL_TIER_DESCRIPTION),
       },
     },
     async (input) => runToolHandler(() => handlers.kimi_continue_task(input)),
