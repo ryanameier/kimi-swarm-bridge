@@ -128,9 +128,13 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.backingUp;
 	}
 
-	/** Stop the container. The next request restores from the latest backup and starts fresh. */
+	/**
+	 * Stop the container. The next request restores from the latest backup and starts fresh.
+	 * A hung container can ignore SIGTERM, so it is killed if still running after 15s.
+	 */
 	async restartRuntime(): Promise<void> {
-		await this.stop();
+		await Promise.race([this.stop(), new Promise((resolve) => setTimeout(resolve, 15_000))]);
+		if (this.ctx.container?.running) await this.stop("SIGKILL");
 	}
 
 	async backupStatus(): Promise<{ lastBackupAt: number | null; backups: Record<string, string>; skipped: unknown }> {
