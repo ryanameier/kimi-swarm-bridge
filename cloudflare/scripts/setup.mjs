@@ -216,11 +216,17 @@ async function main() {
     AIAND_CONCURRENCY_LIMIT: countVar('KIMI_AIAND_CONCURRENCY', pick('AIAND_CONCURRENCY_LIMIT') ?? 100),
     EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'log',
     EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
+    DEFAULT_MODEL_TIER: process.env.KIMI_DEFAULT_MODEL_TIER?.trim().toLowerCase() || pick('DEFAULT_MODEL_TIER') || 'balanced',
+    MODEL_TIERS: process.env.KIMI_MODEL_TIERS ?? pick('MODEL_TIERS') ?? '',
   };
+  if (!['economy', 'balanced', 'premium'].includes(config.vars.DEFAULT_MODEL_TIER)) fail('KIMI_DEFAULT_MODEL_TIER must be economy, balanced or premium.');
+  if (config.vars.MODEL_TIERS) {
+    try { JSON.parse(config.vars.MODEL_TIERS); } catch { fail('KIMI_MODEL_TIERS must be JSON, for example {"premium":{"coordinator":"moonshotai/kimi-k3"}}.'); }
+  }
   if (!['open', 'log', 'allowlist'].includes(config.vars.EGRESS_MODE)) fail('KIMI_EGRESS_MODE must be open, log or allowlist.');
   ok(`agents per task: ${config.vars.DEFAULT_MAX_AGENTS} by default, users may raise to ${config.vars.MAX_AGENTS_CAP}; ${config.vars.SWARM_CONCURRENCY} call ai& at once per employee`);
   const limit = config.vars.AIAND_DAILY_REQUEST_LIMIT;
-  ok(`default model: ${config.vars.AIAND_MODEL}`);
+  ok(`default model: ${config.vars.AIAND_MODEL}; model choice per task: automatic (default tier ${config.vars.DEFAULT_MODEL_TIER}${config.vars.MODEL_TIERS ? `, custom tiers ${config.vars.MODEL_TIERS}` : ''})`);
   ok(`ai& requests in flight for the whole organization: ${config.vars.AIAND_CONCURRENCY_LIMIT === '0' ? 'no limit' : `at most ${config.vars.AIAND_CONCURRENCY_LIMIT}`} (set KIMI_AIAND_CONCURRENCY to your ai& limit)`);
   ok(`ai& budget: ${limit === '0' ? 'unlimited' : `${limit} model requests per employee per day`}; outbound traffic: ${config.vars.EGRESS_MODE}${config.vars.EGRESS_MODE === 'allowlist' ? ` (${config.vars.EGRESS_ALLOWLIST || 'ai& and Brave Search only'})` : ''}`);
 

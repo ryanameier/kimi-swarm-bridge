@@ -76,6 +76,9 @@ export class KimiSandbox extends Sandbox<Env> {
 			KIMI_DEFAULT_MAX_AGENTS: env.DEFAULT_MAX_AGENTS || "20",
 			// ai& model for new users; each user can switch with kimi_model_settings.
 			KIMI_MODEL_NAME: env.AIAND_MODEL || "zai-org/glm-5.3",
+			// Automatic per-task model choice (economy / balanced / premium).
+			KIMI_DEFAULT_MODEL_TIER: env.DEFAULT_MODEL_TIER || "balanced",
+			KIMI_MODEL_TIERS: env.MODEL_TIERS || "",
 		};
 	}
 
@@ -128,9 +131,13 @@ export class KimiSandbox extends Sandbox<Env> {
 		await this.backingUp;
 	}
 
-	/** Stop the container. The next request restores from the latest backup and starts fresh. */
+	/**
+	 * Stop the container. The next request restores from the latest backup and starts fresh.
+	 * A hung container can ignore SIGTERM, so it is killed if still running after 15s.
+	 */
 	async restartRuntime(): Promise<void> {
-		await this.stop();
+		await Promise.race([this.stop(), new Promise((resolve) => setTimeout(resolve, 15_000))]);
+		if (this.ctx.container?.running) await this.stop("SIGKILL");
 	}
 
 	async backupStatus(): Promise<{ lastBackupAt: number | null; backups: Record<string, string>; skipped: unknown }> {

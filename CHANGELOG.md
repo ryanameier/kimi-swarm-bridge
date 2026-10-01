@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Automatic model choice per task: `kimi_delegate_task` and `kimi_continue_task` take a
+  `modelTier` (economy, balanced, premium) that Claude picks from the task; economy runs the
+  workers on DeepSeek V4 Flash, premium adds deep research. A user's pinned models
+  (`kimi_model_settings`) still win; `mode: "auto"` returns to automatic choice. Admins set
+  `KIMI_DEFAULT_MODEL_TIER` and `KIMI_MODEL_TIERS`. Results report the models used. Tiers are
+  based on a benchmark of every ai& model on the 30-vector-database brief (README).
+- Prompt: the AgentSwarm call must be a real tool call, never JSON written into the reply
+  (gpt-oss-120b as coordinator wrote it as text and stopped).
+- ai& gate: a request waits at most 2 minutes for a slot, then goes ahead, and expired leases
+  are swept while requests wait, so leases left by aborted runs cannot stall the organization.
+  `GET /admin/aiand-limit` reports `bypassed`.
+- Admin restart kills a container that ignores the stop signal (seen live: a hung container
+  stayed up through restarts).
+
 - Brave search savings: at most 4 queries per `web_search` call, duplicate queries dropped, and a
   per-worker search budget (`KIMI_WORKER_SEARCH_BUDGET`, default 6, 0 = unlimited) after which
   the worker is told to read the pages it already found. Workers read known sites directly

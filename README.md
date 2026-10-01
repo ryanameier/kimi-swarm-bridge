@@ -45,6 +45,41 @@ Scaling beyond these tests: The agent cap goes up to 128 and can be raised live 
 
 Moonshot's own results for Agent Swarm (Kimi K2.5, not these tests) point the same way. In wide-search tasks, the swarm needed 3–4.5× fewer critical steps than a single Kimi agent, which Moonshot reports as up to 4.5× less wall-clock time. It also scored higher than Claude Opus 4.5 on BrowseComp and WideSearch, which measure accuracy rather than speed ([Kimi K2.5 tech blog](https://www.kimi.ai/blog/kimi-k2-5)). Those runs used Moonshot's model and harness, with up to 100 sub-agents; this bridge defaults to GLM-5.3 and a cap of 20.
 
+### Model choice per task
+
+By default Claude picks a model tier for each task it hands to Kimi, and the user can pin specific models instead ("use GLM-5.3 for everything"):
+
+| Tier | Coordinator / workers | Use for |
+|---|---|---|
+| economy | GLM-5.3 / DeepSeek V4 Flash | routine research and data collection, checking a provided list, extraction, formatting |
+| balanced (default) | GLM-5.3 / GLM-5.3 | research and comparison that needs judgment |
+| premium | GLM-5.3 / GLM-5.3, deep research | high-stakes work where accuracy matters more than time and cost |
+
+The tiers come from running the 30-vector-database brief once per ai& model on 2026-10-01: each model as the workers under a GLM-5.3 coordinator, which is how a tier uses it. Model costs are Kimi's ai& token costs; Brave searches and page reading are extra and similar across runs. Agreement is the share of comparable cells (max dimensions, hybrid search, license, cheapest price) that match the GLM-5.3 report; neither report was graded against a reference, so it measures consistency, not accuracy.
+
+| Workers (GLM-5.3 coordinator) | Time | Model cost | Empty cells (of 150) | Agreement with GLM-5.3 |
+|---|---|---|---|---|
+| GLM-5.3 (reference) | 3m52s | ~$1.63 ¹ | 13 | — |
+| DeepSeek V4 Flash | 3m40s | $0.90 | 9 | 89% |
+| Gemma 4 31B | 5m24s | $0.49 | 18 | 91% ² |
+| Qwen3.6 27B | 3m39s | $1.34 | 14 | 83% |
+| GLM-5.2 | 3m13s | $2.11 ³ | 14 | 85% |
+| Qwen3.8 27B | 6m32s | $1.38 | 17 | 76% |
+| gpt-oss-120b | not finished in 8 min | — | — | — |
+| Motif 3 | not finished in 8 min | — | — | — |
+| Kimi K2.7 Code | not finished in 8 min | — | — | — |
+| DeepSeek V4 Pro | not finished in 8 min | — | — | — |
+
+¹ Earlier run of the same brief (v0.5.0); the reference report is the later 3m52s run. ² Much shorter report (28 KB vs 90–136 KB); the coordinator gave each worker two vendors. ³ The coordinator launched the swarm twice.
+
+What else the runs showed:
+
+- **Coordinator role:** DeepSeek V4 Flash as coordinator did not finish in 12 minutes (its workers looped), and gpt-oss-120b wrote the swarm call as text until the prompt said plainly that it must be a real tool call. Kimi K3 as coordinator stalled while writing the report (ai& sent no response to its largest requests for minutes), so premium uses deeper research rather than K3 by default. The coordinator stays on the deployment model in every tier.
+- **Why some workers did not finish:** gpt-oss-120b scraped Bing and DuckDuckGo with shell commands instead of using the web tools; Kimi K2.7 Code barely searched; Motif 3 and DeepSeek V4 Pro kept working past the time budget.
+- **Price per token is not cost per task:** Qwen3.6 costs a third of GLM-5.3 per input token but caches at $0.20 per million, so its run cost about the same.
+
+Admins can change the tiers with `KIMI_MODEL_TIERS` and the default tier with `KIMI_DEFAULT_MODEL_TIER` (see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md)).
+
 ## What it provides
 
 The bridge exposes Kimi Code through MCP with support for:

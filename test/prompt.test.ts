@@ -47,7 +47,7 @@ describe('swarm speed guidance', () => {
   it('shows the exact AgentSwarm call shape so the first launch is accepted', () => {
     const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: limits });
     expect(prompt).toContain('"prompt_template": "<shared instructions> Your scope: {{item}}"');
-    expect(prompt).toContain('with no other fields');
+    expect(prompt).toContain('a real call of the AgentSwarm tool, never JSON written into your reply');
   });
 
   it('gives workers a soft step budget that scales with depth', () => {

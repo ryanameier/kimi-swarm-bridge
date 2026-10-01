@@ -15,7 +15,9 @@ import { InMemoryBaselineStore, type BaselineStore } from './baseline-store.js';
 import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry.js';
 import { readFailureReason, readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 import { getModelCatalog } from './model-pricing.js';
-import { coordinatorAlias, loadModelSettings } from './model-settings.js';
+import { coordinatorAlias, loadModelSettings, renderKimiModelConfig, selectableModels, writeKimiModelConfig } from './model-settings.js';
+import { isPinned, resolveTaskModels, type ModelTier } from './model-tiers.js';
+import { existsSync, readFileSync } from 'node:fs';
 
 export interface FileLister {
   listFiles(baseDir: string, relativeDir: string): Promise<string[]>;
@@ -42,6 +44,7 @@ export interface DelegateTaskInput {
   model?: string;
   thinking?: string;
   depth?: ResearchDepth;
+  modelTier?: ModelTier;
 }
 
 export interface DelegateAndWaitInput extends DelegateTaskInput {
@@ -82,6 +85,7 @@ export interface ContinueTaskInput {
   model?: string;
   thinking?: string;
   depth?: ResearchDepth;
+  modelTier?: ModelTier;
 }
 
 export interface GetDiffInput {
@@ -152,6 +156,8 @@ export interface DelegateAndWaitResult {
   baselineStoreError?: string;
   swarmModeActivated?: boolean;
   swarmEvidence?: SwarmEvidence;
+  /** Which models ran the task and why (caller, the user's fixed choice, or the automatic tier). */
+  models?: TaskModelReport;
 }
 
 export interface DelegateAndWaitDedupeResult {
@@ -227,18 +233,87 @@ function withPreflight<T extends unknown[], R>(
   };
 }
 
-async function resolveModel(
+export interface TaskModelReport {
+  source: 'caller' | 'user' | 'auto';
+  tier?: ModelTier;
+  coordinatorModel?: string;
+  workerModel?: string;
+  notes?: string[];
+}
+
+/** Kimi re-reads config.toml about 150 ms after it changes; give it time before the prompt names a new alias. */
+const CONFIG_RELOAD_WAIT_MS = 1_000;
+
+/**
+ * Models for one prompt: the caller's explicit alias, else the user's pinned
+ * choice (kimi_model_settings), else the task's tier (automatic choice). For a
+ * tier, Kimi's config.toml is rewritten when the choice differs from the last
+ * task, which also binds the AgentSwarm workers; that binding applies to every
+ * worker this user's Kimi starts afterwards, including those of a task
+ * already running.
+ */
+async function prepareTaskModels(
   kimi: KimiClient,
-  inputModel: string | undefined,
+  input: { model?: string; modelTier?: ModelTier },
   config: BridgeConfig,
-): Promise<string> {
-  // The user's coordinator choice (kimi_model_settings) applies when the caller names no model.
-  const chosen = coordinatorAlias(loadModelSettings(config.stateDir), process.env.KIMI_MODEL_NAME);
-  const model = inputModel ?? chosen ?? config.defaultModel ?? await kimi.resolveDefaultModel();
-  if (!model) {
-    throw new Error('No model specified. Pass model in the MCP call, set KIMI_MODEL, or configure default_model in Kimi server.');
+): Promise<{ model: string; report: TaskModelReport }> {
+  const defaultModel = process.env.KIMI_MODEL_NAME;
+  const fallback = async () => {
+    const model = config.defaultModel ?? await kimi.resolveDefaultModel();
+    if (!model) {
+      throw new Error('No model specified. Pass model in the MCP call, set KIMI_MODEL, or configure default_model in Kimi server.');
+    }
+    return model;
+  };
+  if (input.model) return { model: input.model, report: { source: 'caller', coordinatorModel: input.model } };
+
+  const saved = loadModelSettings(config.stateDir);
+  const catalog = await getModelCatalog();
+  const task = resolveTaskModels({
+    saved,
+    requestedTier: input.modelTier,
+    defaultModel,
+    selectable: catalog ? selectableModels(catalog) : undefined,
+  });
+  const notes = [...task.notes];
+  let settings = task.settings;
+
+  if (task.source === 'auto') {
+    if (!config.kimiCodeHome) {
+      if (input.modelTier && input.modelTier !== 'balanced') notes.push('This bridge cannot configure worker models (no KIMI_CODE_HOME); used the default model.');
+      settings = {};
+    } else {
+      try {
+        const content = renderKimiModelConfig(settings, catalog ?? [], defaultModel, config.defaultThinking);
+        const file = path.join(config.kimiCodeHome, 'config.toml');
+        const current = existsSync(file) ? readFileSync(file, 'utf8') : undefined;
+        if (current !== content && !(current === undefined && settings.coordinatorModel === undefined && settings.workerModel === undefined)) {
+          writeKimiModelConfig(config.kimiCodeHome, content);
+          await new Promise((resolve) => setTimeout(resolve, CONFIG_RELOAD_WAIT_MS));
+        }
+      } catch (error) {
+        notes.push(`Could not apply the ${task.tier} models (${error instanceof Error ? error.message : String(error)}); used the default model.`);
+        settings = {};
+      }
+    }
   }
-  return model;
+
+  const alias = coordinatorAlias(settings, defaultModel);
+  return {
+    model: alias ?? await fallback(),
+    report: {
+      source: task.source,
+      ...(task.tier ? { tier: task.tier } : {}),
+      coordinatorModel: settings.coordinatorModel ?? defaultModel,
+      workerModel: settings.workerModel ?? settings.coordinatorModel ?? defaultModel,
+      ...(notes.length > 0 ? { notes } : {}),
+    },
+  };
+}
+
+/** Premium means deep research unless the caller set a depth. */
+function tierDepth(tier: ModelTier | undefined, stateDir: string): ResearchDepth {
+  return tier === 'premium' && !isPinned(loadModelSettings(stateDir)) ? 'deep' : defaultDepth();
 }
 
 /** Deployment default research depth (KIMI_RESEARCH_DEPTH), standard unless set. */
@@ -645,7 +720,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
   }
 
   async function buildDelegateAndWaitResult(
-    delegated: { jobId?: string; sessionId: string; promptId: string; status: string; webUrl: string; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean },
+    delegated: { jobId?: string; sessionId: string; promptId: string; status: string; webUrl: string; models?: TaskModelReport; baselineStored?: boolean; baselineStoreError?: string; swarmModeActivated?: boolean },
     wait: WaitUntilIdleResult,
   ): Promise<DelegateAndWaitResult> {
     const baselineFields = {
@@ -662,6 +737,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     const swarmFields = {
       ...(delegated.swarmModeActivated !== undefined ? { swarmModeActivated: delegated.swarmModeActivated } : {}),
       ...(swarmEvidence !== undefined ? { swarmEvidence } : {}),
+      ...(delegated.models ? { models: delegated.models } : {}),
     };
     if (wait.status !== 'idle') {
       const result: DelegateAndWaitResult = {
@@ -870,16 +946,17 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
           swarmLimits: loadSwarmLimits(deps.config.stateDir),
-          depth: input.depth ?? defaultDepth(),
+          depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
           swarmSuggestions: input.swarmMode ? input.plan : undefined,
         });
 
+        const models = await prepareTaskModels(deps.kimi, input, deps.config);
         const result = await deps.kimi.submitPrompt(session.id, {
           content: prompt,
-          model: await resolveModel(deps.kimi, input.model, deps.config),
+          model: models.model,
           thinking: input.thinking ?? deps.config.defaultThinking,
           permissionMode: deps.config.defaultPermissionMode,
           planMode: false,
@@ -897,6 +974,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           promptId: result.prompt_id,
           status: result.status,
           webUrl: buildWebUrl(deps.config.serverUrl, session.id),
+          models: models.report,
           ...(baselineStored !== undefined ? { baselineStored } : {}),
           ...(baselineStoreError !== undefined ? { baselineStoreError } : {}),
           ...(input.swarmMode !== undefined
@@ -1155,16 +1233,17 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
         swarmLimits: loadSwarmLimits(deps.config.stateDir),
-        depth: input.depth ?? defaultDepth(),
+        depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],
         plan: input.plan ?? [],
         swarmSuggestions: input.swarmMode ? input.plan : undefined,
       });
+      const models = await prepareTaskModels(deps.kimi, input, deps.config);
       const result = await deps.kimi.submitPrompt(input.sessionId, {
         content: prompt,
-        model: await resolveModel(deps.kimi, input.model, deps.config),
+        model: models.model,
         thinking: input.thinking ?? deps.config.defaultThinking,
         permissionMode: deps.config.defaultPermissionMode,
         planMode: false,
@@ -1179,7 +1258,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         deps.jobRegistry.updateStatus(job.jobId, 'running');
       }
 
-      return { sessionId: input.sessionId, promptId: result.prompt_id, status: result.status, webUrl: buildWebUrl(deps.config.serverUrl, input.sessionId) };
+      return { sessionId: input.sessionId, promptId: result.prompt_id, status: result.status, webUrl: buildWebUrl(deps.config.serverUrl, input.sessionId), models: models.report };
     },
 
     async kimi_get_diff(input: GetDiffInput) {

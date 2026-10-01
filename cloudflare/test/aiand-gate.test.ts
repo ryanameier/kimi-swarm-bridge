@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ConcurrencyGate, envConcurrencyLimit } from "../src/concurrency-gate";
+import { describe, expect, it, vi } from "vitest";
+import { ConcurrencyGate, envConcurrencyLimit, MAX_WAIT_MS } from "../src/concurrency-gate";
 
 describe("ConcurrencyGate", () => {
 	it("admits up to the limit and queues the rest in arrival order", async () => {
@@ -37,6 +37,40 @@ describe("ConcurrencyGate", () => {
 		await gate.acquire();
 		now = 6 * 60_000;
 		await expect(gate.acquire()).resolves.toMatchObject({ waitMs: 0 });
+	});
+
+	it("lets a request through without a slot after the maximum wait, so dead leases cannot stall everyone", async () => {
+		vi.useFakeTimers();
+		try {
+			const gate = new ConcurrencyGate(1);
+			await gate.acquire(); // never released, like a request from an aborted run
+			const waiting = gate.acquire();
+			await vi.advanceTimersByTimeAsync(MAX_WAIT_MS);
+			const lease = await waiting;
+			expect(lease.waitMs).toBeGreaterThanOrEqual(MAX_WAIT_MS);
+			expect(gate.bypassed).toBe(1);
+			expect(gate.queued).toBe(0);
+			gate.release(lease.id); // no-op for a bypassed request
+			expect(gate.active).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("sweeps expired leases while requests wait, without needing a new request", async () => {
+		vi.useFakeTimers();
+		try {
+			let now = 0;
+			const gate = new ConcurrencyGate(1, () => now);
+			await gate.acquire();
+			const waiting = gate.acquire();
+			now = 5 * 60_000 + 1;
+			await vi.advanceTimersByTimeAsync(15_000);
+			await expect(waiting).resolves.toMatchObject({ waitMs: now });
+			expect(gate.bypassed).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("reads the limit from the environment with a default of 100", () => {

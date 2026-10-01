@@ -64,6 +64,7 @@ export class AiandGate extends DurableObject<GateEnv> {
 			peakActive: gate.peakActive,
 			waited: gate.waited,
 			totalWaitMs: gate.totalWaitMs,
+			bypassed: gate.bypassed,
 			since: gate.since,
 		};
 	}
@@ -74,6 +75,7 @@ export class AiandGate extends DurableObject<GateEnv> {
 		gate.peakActive = gate.active;
 		gate.waited = 0;
 		gate.totalWaitMs = 0;
+		gate.bypassed = 0;
 		gate.since = Date.now();
 		return this.stats();
 	}

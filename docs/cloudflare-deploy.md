@@ -131,10 +131,16 @@ share download links.
 ## Agent limits and ai& rate limits
 
 - **Models.** New users start on `AIAND_MODEL` (setup: `KIMI_MODEL`, default `zai-org/glm-5.3`).
-  Employees switch models from chat ("which models can Kimi use?", "use GLM-5.3 for the
-  workers") via `kimi_model_settings`, separately for the coordinator and the workers; the
-  worker model drives most of the cost. `KIMI_ALLOWED_MODELS` (comma-separated ids) limits the
-  choice. Task results include token usage and an estimated cost.
+  By default the model is chosen per task: Claude passes a tier with each task (economy:
+  DeepSeek V4 Flash workers; balanced: the default model; premium: deep research), see the
+  README's model-choice benchmark. Setup variables: `KIMI_DEFAULT_MODEL_TIER` (the tier when
+  Claude names none, default `balanced`) and `KIMI_MODEL_TIERS`, JSON that overrides a tier's
+  models, for example `{"premium":{"coordinator":"moonshotai/kimi-k3"}}` (`null` removes a
+  default). Employees can also pin models from chat ("which models can Kimi use?", "use GLM-5.3
+  for the workers") via `kimi_model_settings`, separately for the coordinator and the workers;
+  pinned models apply to every task until they ask for automatic choice again. The worker model
+  drives most of the cost. `KIMI_ALLOWED_MODELS` (comma-separated ids) limits the choice. Task
+  results report the models used, token usage and an estimated cost.
 - **Agents per task (a ceiling).** Kimi decides how many AgentSwarm workers each task needs and
   is told to use the fewest that do the job well; the ceiling only bounds it. It starts at
   `DEFAULT_MAX_AGENTS` (20). Employees change their own ceiling from chat ("raise the Kimi agent
