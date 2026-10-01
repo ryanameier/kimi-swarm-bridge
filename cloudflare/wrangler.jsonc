@@ -39,7 +39,7 @@
 		"AIAND_DAILY_REQUEST_LIMIT": "3000",
 		// Automatic model choice per task: economy, balanced or premium when Claude names none,
 		// and optional JSON overrides of each tier's models (see docs/cloudflare-deploy.md).
-		"DEFAULT_MODEL_TIER": "balanced",
+		"DEFAULT_MODEL_TIER": "economy",
 		"MODEL_TIERS": "",
 		// Simultaneous ai& model requests for the whole organization (ai& X-RateLimit-Limit); 0 = off.
 		"AIAND_CONCURRENCY_LIMIT": "100",

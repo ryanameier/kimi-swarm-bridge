@@ -48,7 +48,7 @@ Then stop and wait for the answer.
    - what to produce, the exact fields, format and scope;
    - any context from this conversation that Kimi needs (it cannot see the chat), including any candidates or data you gathered with other tools and what Kimi should verify or add to them;
    - if the user wants a file, ask Kimi to save it in `/workspace/outputs`.
-   Also pass `modelTier` for what the part needs: `economy` (about half the cost) for routine research or data collection where each item is straightforward, checking a provided list, extraction or formatting; `balanced` (default) when it needs judgment; `premium` (deep, cross-checked, slower and costlier) for high-stakes work. Follow the user if they ask for cheaper, faster or more thorough. If the user has fixed models in `kimi_model_settings`, those apply instead.
+   Also pass `modelTier` for what the part needs: `economy` (default, about half the cost) for most research, data collection, checking a provided list against criteria, extraction or formatting; `balanced` for complex comparison or synthesis that needs nuanced judgment, or to redo a thin economy result; `premium` (deep, cross-checked, slower and costlier) for high-stakes work. Follow the user if they ask for cheaper, faster or more thorough. If the user has fixed models in `kimi_model_settings`, those apply instead.
    `kimi_delegate_task` returns immediately with a `sessionId`; Kimi keeps working.
 3. **Do your own part** while Kimi works.
 4. **Collect Kimi's result.** Call `kimi_wait_until_idle` with the `sessionId`, and call it again while it returns a timeout (the job is still running). Then call `kimi_get_handoff`.

@@ -51,8 +51,8 @@ By default Claude picks a model tier for each task it hands to Kimi, and the use
 
 | Tier | Coordinator / workers | Use for |
 |---|---|---|
-| economy | GLM-5.3 / DeepSeek V4 Flash | routine research and data collection, checking a provided list, extraction, formatting |
-| balanced (default) | GLM-5.3 / GLM-5.3 | research and comparison that needs judgment |
+| economy (default) | GLM-5.3 / DeepSeek V4 Flash | most research and data collection, checking a list against criteria, extraction, formatting |
+| balanced | GLM-5.3 / GLM-5.3 | complex comparison or synthesis that needs nuanced judgment |
 | premium | GLM-5.3 / GLM-5.3, deep research | high-stakes work where accuracy matters more than time and cost |
 
 The tiers come from running the 30-vector-database brief once per ai& model on 2026-10-01: each model as the workers under a GLM-5.3 coordinator, which is how a tier uses it. Model costs are Kimi's ai& token costs; Brave searches and page reading are extra and similar across runs. Agreement is the share of comparable cells (max dimensions, hybrid search, license, cheapest price) that match the GLM-5.3 report; neither report was graded against a reference, so it measures consistency, not accuracy.
@@ -77,6 +77,8 @@ What else the runs showed:
 - **Coordinator role:** DeepSeek V4 Flash as coordinator did not finish in 12 minutes (its workers looped), and gpt-oss-120b wrote the swarm call as text until the prompt said plainly that it must be a real tool call. Kimi K3 as coordinator stalled while writing the report (ai& sent no response to its largest requests for minutes), so premium uses deeper research rather than K3 by default. The coordinator stays on the deployment model in every tier.
 - **Why some workers did not finish:** gpt-oss-120b scraped Bing and DuckDuckGo with shell commands instead of using the web tools; Kimi K2.7 Code barely searched; Motif 3 and DeepSeek V4 Pro kept working past the time budget.
 - **Price per token is not cost per task:** Qwen3.6 costs a third of GLM-5.3 per input token but caches at $0.20 per million, so its run cost about the same.
+
+Economy is the default because it matched GLM-5.3 on the benchmark at about half the model cost and gave correct verdicts on a 43-company criteria check (spot-checked against the live sites). With Flash workers each worker gets exactly one item, so long lists run in batches of up to the agent ceiling (43 items took about 12 minutes).
 
 Admins can change the tiers with `KIMI_MODEL_TIERS` and the default tier with `KIMI_DEFAULT_MODEL_TIER` (see [docs/cloudflare-deploy.md](docs/cloudflare-deploy.md)).
 

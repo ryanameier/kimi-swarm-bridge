@@ -134,7 +134,7 @@ share download links.
   By default the model is chosen per task: Claude passes a tier with each task (economy:
   DeepSeek V4 Flash workers; balanced: the default model; premium: deep research), see the
   README's model-choice benchmark. Setup variables: `KIMI_DEFAULT_MODEL_TIER` (the tier when
-  Claude names none, default `balanced`) and `KIMI_MODEL_TIERS`, JSON that overrides a tier's
+  Claude names none, default `economy`) and `KIMI_MODEL_TIERS`, JSON that overrides a tier's
   models, for example `{"premium":{"coordinator":"moonshotai/kimi-k3"}}` (`null` removes a
   default). Employees can also pin models from chat ("which models can Kimi use?", "use GLM-5.3
   for the workers") via `kimi_model_settings`, separately for the coordinator and the workers;

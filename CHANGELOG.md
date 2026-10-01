@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Economy is the default tier (`KIMI_DEFAULT_MODEL_TIER`, now `economy`): GLM-5.3 coordinator
+  with DeepSeek V4 Flash workers. On the 30-item benchmark it matched GLM-5.3 at about half the
+  model cost, and its verdicts on a 43-company criteria check were correct where spot-checked.
+  Claude still picks balanced or premium per task when the work needs it.
+
 - Economy safety on long lists: when workers run on DeepSeek V4 Flash, the coordinator gives
   every worker exactly one item and runs AgentSwarm in batches of at most the agent ceiling,
   instead of grouping items (Flash workers given two items each looped and never finished in a
