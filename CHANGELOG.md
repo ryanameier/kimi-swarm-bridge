@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Backups and restores stream between R2 and the container (`SANDBOX_TRANSPORT=rpc`). The
+  default transport copied each archive through the sandbox Durable Object, which has a 128 MB
+  memory limit; once `/home/kimi` (Kimi's session history) reached about 60 MB compressed,
+  backups and restores crashed it and the container became unreachable.
+- Weaker coordinator models: the prompt forbids URLs from memory in the worker brief, a 404 from
+  `read_page` tells the worker to search instead of guessing more URLs, and `kimi-assemble`
+  accepts table rows written without the outer pipes. Seen live with DeepSeek V4 Flash as
+  coordinator: it gave workers guessed deep links (many 404s) and told them not to search, and
+  asked for rows without pipes, so no worker finished in 8 minutes.
+
 - Automatic model choice per task: `kimi_delegate_task` and `kimi_continue_task` take a
   `modelTier` (economy, balanced, premium) that Claude picks from the task; economy runs the
   workers on DeepSeek V4 Flash, premium adds deep research. A user's pinned models
