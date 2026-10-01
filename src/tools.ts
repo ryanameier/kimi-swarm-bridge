@@ -16,7 +16,7 @@ import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry
 import { readFailureReason, readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 import { getModelCatalog } from './model-pricing.js';
 import { coordinatorAlias, loadModelSettings, renderKimiModelConfig, selectableModels, writeKimiModelConfig } from './model-settings.js';
-import { isPinned, resolveTaskModels, type ModelTier } from './model-tiers.js';
+import { isPinned, needsSingleItemWorkers, resolveTaskModels, type ModelTier } from './model-tiers.js';
 import { existsSync, readFileSync } from 'node:fs';
 
 export interface FileLister {
@@ -942,10 +942,11 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           }
         }
 
+        const models = await prepareTaskModels(deps.kimi, input, deps.config);
         const prompt = buildDelegationPrompt({
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
-          swarmLimits: loadSwarmLimits(deps.config.stateDir),
+          swarmLimits: { ...loadSwarmLimits(deps.config.stateDir), singleItemWorkers: needsSingleItemWorkers(models.report.workerModel) },
           depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
@@ -953,7 +954,6 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           swarmSuggestions: input.swarmMode ? input.plan : undefined,
         });
 
-        const models = await prepareTaskModels(deps.kimi, input, deps.config);
         const result = await deps.kimi.submitPrompt(session.id, {
           content: prompt,
           model: models.model,
@@ -1229,10 +1229,11 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
     async kimi_continue_task(input: ContinueTaskInput) {
       const job = requireOwnedSession(input.sessionId);
 
+      const models = await prepareTaskModels(deps.kimi, input, deps.config);
       const prompt = buildContinuationPrompt({
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
-        swarmLimits: loadSwarmLimits(deps.config.stateDir),
+        swarmLimits: { ...loadSwarmLimits(deps.config.stateDir), singleItemWorkers: needsSingleItemWorkers(models.report.workerModel) },
         depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
@@ -1240,7 +1241,6 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         plan: input.plan ?? [],
         swarmSuggestions: input.swarmMode ? input.plan : undefined,
       });
-      const models = await prepareTaskModels(deps.kimi, input, deps.config);
       const result = await deps.kimi.submitPrompt(input.sessionId, {
         content: prompt,
         model: models.model,

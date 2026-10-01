@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseModelCatalog } from '../src/model-pricing.js';
-import { defaultTier, resolveTaskModels, tierModels } from '../src/model-tiers.js';
+import { defaultTier, needsSingleItemWorkers, resolveTaskModels, tierModels } from '../src/model-tiers.js';
 
 const DEFAULT = 'zai-org/glm-5.3';
 const catalog = parseModelCatalog({
@@ -58,5 +58,12 @@ describe('model tiers', () => {
   it('uses the default tier when the caller names none', () => {
     const task = resolveTaskModels({ saved: {}, defaultModel: DEFAULT, selectable: catalog, env: { KIMI_DEFAULT_MODEL_TIER: 'economy' } });
     expect(task.tier).toBe('economy');
+  });
+
+  it('marks DeepSeek V4 Flash workers as one-item-per-worker, configurable by the admin', () => {
+    expect(needsSingleItemWorkers('deepseek-ai/deepseek-v4-flash', {})).toBe(true);
+    expect(needsSingleItemWorkers(DEFAULT, {})).toBe(false);
+    expect(needsSingleItemWorkers(undefined, {})).toBe(false);
+    expect(needsSingleItemWorkers(DEFAULT, { KIMI_SINGLE_ITEM_WORKER_MODELS: 'zai-org/glm-5.3, x/y' })).toBe(true);
   });
 });

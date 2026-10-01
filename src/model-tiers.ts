@@ -148,3 +148,15 @@ export function resolveTaskModels(options: {
     notes,
   };
 }
+
+/**
+ * Worker models that loop when one worker gets several items (seen with DeepSeek V4 Flash:
+ * workers with two vendors each made 70+ calls and never finished). For these, the prompt
+ * keeps one item per worker and runs extra AgentSwarm batches instead of grouping.
+ * Admins can change the list with KIMI_SINGLE_ITEM_WORKER_MODELS (comma-separated ids).
+ */
+export function needsSingleItemWorkers(workerModel: string | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!workerModel) return false;
+  const list = (env.KIMI_SINGLE_ITEM_WORKER_MODELS ?? 'deepseek-ai/deepseek-v4-flash').split(',').map((id) => id.trim()).filter(Boolean);
+  return list.includes(workerModel);
+}
