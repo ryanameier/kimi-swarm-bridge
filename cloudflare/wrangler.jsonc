@@ -37,6 +37,10 @@
 	"vars": {
 		"ORGANIZATION_ID": "default", "AIAND_MODEL": "zai-org/glm-5.3", "SWARM_CONCURRENCY": "20", "MAX_AGENTS_CAP": "20", "DEFAULT_MAX_AGENTS": "20",
 		"AIAND_DAILY_REQUEST_LIMIT": "3000",
+		// Automatic model choice per task: economy, balanced or premium when Claude names none,
+		// and optional JSON overrides of each tier's models (see docs/cloudflare-deploy.md).
+		"DEFAULT_MODEL_TIER": "balanced",
+		"MODEL_TIERS": "",
 		// Simultaneous ai& model requests for the whole organization (ai& X-RateLimit-Limit); 0 = off.
 		"AIAND_CONCURRENCY_LIMIT": "100",
 		"EGRESS_MODE": "log",

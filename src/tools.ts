@@ -16,7 +16,7 @@ import type { JobOwner, JobRecord, JobRegistry, JobStatus } from './job-registry
 import { readFailureReason, readSwarmEvidence, type SwarmEvidence } from './swarm-evidence.js';
 import { getModelCatalog } from './model-pricing.js';
 import { coordinatorAlias, loadModelSettings, renderKimiModelConfig, selectableModels, writeKimiModelConfig } from './model-settings.js';
-import { resolveTaskModels, type ModelTier } from './model-tiers.js';
+import { isPinned, resolveTaskModels, type ModelTier } from './model-tiers.js';
 import { existsSync, readFileSync } from 'node:fs';
 
 export interface FileLister {
@@ -309,6 +309,11 @@ async function prepareTaskModels(
       ...(notes.length > 0 ? { notes } : {}),
     },
   };
+}
+
+/** Premium means deep research unless the caller set a depth. */
+function tierDepth(tier: ModelTier | undefined, stateDir: string): ResearchDepth {
+  return tier === 'premium' && !isPinned(loadModelSettings(stateDir)) ? 'deep' : defaultDepth();
 }
 
 /** Deployment default research depth (KIMI_RESEARCH_DEPTH), standard unless set. */
@@ -941,7 +946,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
           coordinator: deps.config.coordinatorName,
           workspaceFiles: deps.config.workspaceFiles,
           swarmLimits: loadSwarmLimits(deps.config.stateDir),
-          depth: input.depth ?? defaultDepth(),
+          depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
           task: input.task,
           acceptanceCriteria: input.acceptanceCriteria,
           plan: input.plan,
@@ -1228,7 +1233,7 @@ export function createToolHandlers(deps: ToolDeps): ToolHandlers {
         coordinator: deps.config.coordinatorName,
         workspaceFiles: deps.config.workspaceFiles,
         swarmLimits: loadSwarmLimits(deps.config.stateDir),
-        depth: input.depth ?? defaultDepth(),
+        depth: input.depth ?? tierDepth(input.modelTier, deps.config.stateDir),
         sessionId: input.sessionId,
         task: input.task,
         acceptanceCriteria: input.acceptanceCriteria ?? [],

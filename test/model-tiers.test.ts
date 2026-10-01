@@ -23,8 +23,14 @@ describe('model tiers', () => {
     expect(task.coordinatorModel).toBe(DEFAULT);
   });
 
-  it('pins premium workers to the deployment model so they do not follow the stronger coordinator', () => {
+  it('keeps the deployment models for premium by default (premium means deep research)', () => {
     const task = resolveTaskModels({ saved: {}, requestedTier: 'premium', defaultModel: DEFAULT, selectable: catalog, env: {} });
+    expect(task.settings).toEqual({});
+  });
+
+  it('pins workers to the deployment model when an admin sets a stronger premium coordinator', () => {
+    const env = { KIMI_MODEL_TIERS: '{"premium":{"coordinator":"moonshotai/kimi-k3"}}' };
+    const task = resolveTaskModels({ saved: {}, requestedTier: 'premium', defaultModel: DEFAULT, selectable: catalog, env });
     expect(task.settings).toEqual({ coordinatorModel: 'moonshotai/kimi-k3', workerModel: DEFAULT });
   });
 
@@ -42,7 +48,7 @@ describe('model tiers', () => {
   });
 
   it('reads admin overrides and the default tier from the environment', () => {
-    const env = { KIMI_MODEL_TIERS: '{"economy":{"workers":"openai/gpt-oss-120b"},"premium":{"coordinator":null},"bogus":{}}', KIMI_DEFAULT_MODEL_TIER: 'economy' };
+    const env = { KIMI_MODEL_TIERS: '{"economy":{"workers":"openai/gpt-oss-120b"},"balanced":{"coordinator":null},"bogus":{}}', KIMI_DEFAULT_MODEL_TIER: 'economy' };
     expect(tierModels(env)).toEqual({ economy: { workers: 'openai/gpt-oss-120b' }, balanced: {}, premium: {} });
     expect(defaultTier(env)).toBe('economy');
     expect(defaultTier({ KIMI_DEFAULT_MODEL_TIER: 'cheap' })).toBe('balanced');

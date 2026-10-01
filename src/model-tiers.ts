@@ -8,18 +8,19 @@ import type { ModelSettings } from './model-settings.js';
  * tier for each delegated task (the `modelTier` argument) and the bridge maps
  * it to ai& models:
  *
- * - economy:  coordinator on the deployment model, workers on a low-cost model.
- *             For simple, well-specified work: lookups, extraction, checking a
- *             provided list, formatting, mechanical pre-screens.
- * - balanced: the deployment model for both (today's behaviour). Typical
- *             research and comparison that needs judgment.
- * - premium:  a stronger coordinator, workers on the deployment model. Hard
- *             reasoning, complex synthesis, high-stakes or coding work.
+ * - economy:  coordinator on the deployment model, workers on DeepSeek V4 Flash.
+ *             Measured on the 30-item benchmark: about the same time and
+ *             completeness as balanced at about 55% of the model cost.
+ * - balanced: the deployment model for both (today's behaviour).
+ * - premium:  the deployment models with deep research (cross-checked
+ *             sources) unless the task sets a depth. No stronger coordinator
+ *             by default: Kimi K3 stalled as coordinator in our tests. Admins
+ *             can set one with KIMI_MODEL_TIERS.
  *
  * Workers carry most of a swarm's tokens, so the worker model sets most of the
  * cost; the coordinator plans, splits the work and writes the result, so it
  * sets most of the quality. Admins can change the mapping with
- * KIMI_MODEL_TIERS (JSON, e.g. {"economy":{"workers":"openai/gpt-oss-120b"}})
+ * KIMI_MODEL_TIERS (JSON, e.g. {"premium":{"coordinator":"moonshotai/kimi-k3"}})
  * and the default tier with KIMI_DEFAULT_MODEL_TIER.
  */
 
@@ -35,13 +36,13 @@ export interface TierModels {
 export const DEFAULT_TIER_MODELS: Record<ModelTier, TierModels> = {
   economy: { workers: 'deepseek-ai/deepseek-v4-flash' },
   balanced: {},
-  premium: { coordinator: 'moonshotai/kimi-k3' },
+  premium: {},
 };
 
 export const TIER_USE: Record<ModelTier, string> = {
-  economy: 'simple, well-specified work: lookups, checking or extracting data from a provided list, formatting, mechanical screens',
-  balanced: 'typical research and comparison that needs judgment (the default)',
-  premium: 'hard reasoning, complex synthesis across many sources, high-stakes or coding work',
+  economy: 'routine research and data collection where each item is straightforward (pricing, specs, contact details, checking a provided list), extraction, formatting, mechanical screens',
+  balanced: 'research and comparison that needs judgment (the default)',
+  premium: 'high-stakes work where accuracy matters more than time and cost: deep, cross-checked research',
 };
 
 function isTier(value: unknown): value is ModelTier {
