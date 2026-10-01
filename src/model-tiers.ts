@@ -9,9 +9,10 @@ import type { ModelSettings } from './model-settings.js';
  * it to ai& models:
  *
  * - economy:  coordinator on the deployment model, workers on DeepSeek V4 Flash.
- *             Measured on the 30-item benchmark: about the same time and
- *             completeness as balanced at about 55% of the model cost.
- * - balanced: the deployment model for both (today's behaviour).
+ *             The default. Measured on the 30-item benchmark: about the same
+ *             time and completeness as balanced at about 55% of the model
+ *             cost, and correct verdicts on a 43-company criteria check.
+ * - balanced: the deployment model for both.
  * - premium:  the deployment models with deep research (cross-checked
  *             sources) unless the task sets a depth. No stronger coordinator
  *             by default: Kimi K3 stalled as coordinator in our tests. Admins
@@ -40,8 +41,8 @@ export const DEFAULT_TIER_MODELS: Record<ModelTier, TierModels> = {
 };
 
 export const TIER_USE: Record<ModelTier, string> = {
-  economy: 'routine research and data collection where each item is straightforward (pricing, specs, contact details, checking a provided list), extraction, formatting, mechanical screens',
-  balanced: 'research and comparison that needs judgment (the default)',
+  economy: 'most research, data collection and checking a provided list against criteria, plus extraction, formatting and mechanical screens (the default)',
+  balanced: 'complex comparison or synthesis that needs nuanced judgment, or when an economy result came back thin',
   premium: 'high-stakes work where accuracy matters more than time and cost: deep, cross-checked research',
 };
 
@@ -51,7 +52,7 @@ function isTier(value: unknown): value is ModelTier {
 
 export function defaultTier(env: NodeJS.ProcessEnv = process.env): ModelTier {
   const value = env.KIMI_DEFAULT_MODEL_TIER?.trim();
-  return isTier(value) ? value : 'balanced';
+  return isTier(value) ? value : 'economy';
 }
 
 /** The tier mapping with KIMI_MODEL_TIERS applied; malformed overrides are ignored. */

@@ -216,7 +216,7 @@ async function main() {
     AIAND_CONCURRENCY_LIMIT: countVar('KIMI_AIAND_CONCURRENCY', pick('AIAND_CONCURRENCY_LIMIT') ?? 100),
     EGRESS_MODE: process.env.KIMI_EGRESS_MODE?.trim().toLowerCase() || pick('EGRESS_MODE') || 'log',
     EGRESS_ALLOWLIST: process.env.KIMI_EGRESS_ALLOWLIST ?? pick('EGRESS_ALLOWLIST') ?? '',
-    DEFAULT_MODEL_TIER: process.env.KIMI_DEFAULT_MODEL_TIER?.trim().toLowerCase() || pick('DEFAULT_MODEL_TIER') || 'balanced',
+    DEFAULT_MODEL_TIER: process.env.KIMI_DEFAULT_MODEL_TIER?.trim().toLowerCase() || pick('DEFAULT_MODEL_TIER') || 'economy',
     MODEL_TIERS: process.env.KIMI_MODEL_TIERS ?? pick('MODEL_TIERS') ?? '',
   };
   if (!['economy', 'balanced', 'premium'].includes(config.vars.DEFAULT_MODEL_TIER)) fail('KIMI_DEFAULT_MODEL_TIER must be economy, balanced or premium.');

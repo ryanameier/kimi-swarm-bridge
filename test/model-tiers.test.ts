@@ -51,7 +51,8 @@ describe('model tiers', () => {
     const env = { KIMI_MODEL_TIERS: '{"economy":{"workers":"openai/gpt-oss-120b"},"balanced":{"coordinator":null},"bogus":{}}', KIMI_DEFAULT_MODEL_TIER: 'economy' };
     expect(tierModels(env)).toEqual({ economy: { workers: 'openai/gpt-oss-120b' }, balanced: {}, premium: {} });
     expect(defaultTier(env)).toBe('economy');
-    expect(defaultTier({ KIMI_DEFAULT_MODEL_TIER: 'cheap' })).toBe('balanced');
+    expect(defaultTier({ KIMI_DEFAULT_MODEL_TIER: 'cheap' })).toBe('economy');
+    expect(defaultTier({})).toBe('economy');
     expect(tierModels({ KIMI_MODEL_TIERS: 'not json' }).economy).toEqual({ workers: 'deepseek-ai/deepseek-v4-flash' });
   });
 

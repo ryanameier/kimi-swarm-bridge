@@ -17,7 +17,7 @@ import { registerSwarmSettingsTool } from './swarm-tools.js';
 import { registerModelSettingsTool } from './model-tools.js';
 import { MODEL_TIERS } from './model-tiers.js';
 
-const MODEL_TIER_DESCRIPTION = 'Model choice for this task when the user has not fixed models in kimi_model_settings; pick from what the task needs. economy (about half the model cost, similar speed and completeness in tests: low-cost worker model) for routine research and data collection where each item is straightforward, such as pricing, specs or checking a provided list, and for extraction, formatting or mechanical screens; balanced (default) for research and comparison that needs judgment; premium (deep, cross-checked research; slower and costlier) for high-stakes work where accuracy matters most. If the user asks for cheaper, faster or more thorough, follow that. The result reports the models used.';
+const MODEL_TIER_DESCRIPTION = 'Model choice for this task when the user has not fixed models in kimi_model_settings; pick from what the task needs. economy (default; about half the model cost, similar speed and completeness in tests: low-cost worker model) for most research, data collection and checking a provided list against criteria, and for extraction, formatting or mechanical screens; balanced for complex comparison or synthesis that needs nuanced judgment, or to redo a thin economy result; premium (deep, cross-checked research; slower and costlier) for high-stakes work where accuracy matters most. If the user asks for cheaper, faster or more thorough, follow that. The result reports the models used.';
 import { KimiPreflight } from './preflight.js';
 
 function summarizeCause(cause: unknown): unknown {

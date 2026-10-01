@@ -77,7 +77,7 @@ export class KimiSandbox extends Sandbox<Env> {
 			// ai& model for new users; each user can switch with kimi_model_settings.
 			KIMI_MODEL_NAME: env.AIAND_MODEL || "zai-org/glm-5.3",
 			// Automatic per-task model choice (economy / balanced / premium).
-			KIMI_DEFAULT_MODEL_TIER: env.DEFAULT_MODEL_TIER || "balanced",
+			KIMI_DEFAULT_MODEL_TIER: env.DEFAULT_MODEL_TIER || "economy",
 			KIMI_MODEL_TIERS: env.MODEL_TIERS || "",
 		};
 	}
