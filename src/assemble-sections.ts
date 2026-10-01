@@ -20,9 +20,15 @@ import { fileURLToPath } from 'node:url';
 const isRow = (line: string) => line.trimStart().startsWith('|');
 const isSeparator = (line: string) => /^\s*\|[\s:|-]*-{3,}[\s:|-]*$/.test(line);
 
+/** A table row written without the outer pipes ("a | b | c"), as some models do. */
+const isBareRow = (line: string) => !isRow(line) && (line.match(/ \| /g) ?? []).length >= 2;
+
 export function splitSection(text: string): { rows: string[]; body: string } {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const firstHeading = lines.findIndex((line) => /^#{1,6}\s/.test(line));
+  const raw = text.replace(/\r\n/g, '\n').split('\n');
+  const headingAt = raw.findIndex((line) => /^#{1,6}\s/.test(line));
+  // Before the first heading, accept rows without the outer pipes by adding them.
+  const lines = raw.map((line, index) => ((headingAt === -1 || index < headingAt) && isBareRow(line) ? `| ${line.trim()} |` : line));
+  const firstHeading = headingAt;
   const before = firstHeading === -1 ? lines : lines.slice(0, firstHeading);
   let rowIndexes = before.flatMap((line, index) => (isRow(line) ? [index] : []));
   if (rowIndexes.length === 0) {

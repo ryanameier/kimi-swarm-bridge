@@ -45,7 +45,11 @@
 		"AIAND_CONCURRENCY_LIMIT": "100",
 		"EGRESS_MODE": "log",
 		"EGRESS_ALLOWLIST": "",
-		"BACKUP_MAX_MB": "4096"
+		"BACKUP_MAX_MB": "4096",
+		// Stream backups and restores between R2 and the container. The default transport copies
+		// the whole archive through the sandbox Durable Object (128 MB limit) and fails on large
+		// /home/kimi backups.
+		"SANDBOX_TRANSPORT": "rpc"
 	},
 	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "set-by-npm-run-setup" }],
 	"secrets": {

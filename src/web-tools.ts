@@ -270,7 +270,11 @@ export async function getPageText(url: string, env: WebToolsEnv, fetchImpl: Fetc
     if (rendered && rendered.text.length > (direct?.text.length ?? 0)) return { ...rendered, source: 'browser' };
   }
   if (direct) {
-    if (direct.status >= 400 && direct.text.length < MIN_USEFUL_TEXT) throw new Error(`HTTP ${direct.status} fetching ${url}`);
+    if (direct.status >= 400 && direct.text.length < MIN_USEFUL_TEXT) {
+      // Weaker models guess deep links from memory and keep guessing; point them to search instead.
+      const missing = direct.status === 404 || direct.status === 410;
+      throw new Error(`HTTP ${direct.status} fetching ${url}${missing ? '. This page does not exist. Do not guess other URLs on this site: use web_search to find the right page, then read a URL from the results.' : ''}`);
+    }
     return { title: direct.title, text: direct.text, source: 'direct' };
   }
   throw new Error(`Could not fetch ${url}: ${error instanceof Error ? error.message : String(error)}`);
