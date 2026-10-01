@@ -65,6 +65,12 @@ describe('worker split for independent research items', () => {
     expect(prompt).toContain('use exactly one worker per item and do not group items');
     expect(prompt).toContain('spread them evenly across the ceiling');
   });
+
+  it('keeps one item per worker and batches swarms when the workers use a lighter model', () => {
+    const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 20, concurrency: 20, singleItemWorkers: true } });
+    expect(prompt).toContain('still give every worker exactly one item and run AgentSwarm several times one after another, each call with at most 20 items');
+    expect(prompt).not.toContain('spread them evenly across the ceiling');
+  });
 });
 
 describe('finishing after the swarm', () => {

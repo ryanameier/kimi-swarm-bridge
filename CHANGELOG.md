@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Economy safety on long lists: when workers run on DeepSeek V4 Flash, the coordinator gives
+  every worker exactly one item and runs AgentSwarm in batches of at most the agent ceiling,
+  instead of grouping items (Flash workers given two items each looped and never finished in a
+  30-item test). `KIMI_SINGLE_ITEM_WORKER_MODELS` lists the worker models this applies to.
+
 - Backups and restores stream between R2 and the container (`SANDBOX_TRANSPORT=rpc`). The
   default transport copied each archive through the sandbox Durable Object, which has a 128 MB
   memory limit; once `/home/kimi` (Kimi's session history) reached about 60 MB compressed,
