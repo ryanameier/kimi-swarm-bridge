@@ -86,9 +86,10 @@ describe('worker time budget and finishing reads', () => {
 describe('search cost and discovery guidance', () => {
   const prompt = buildDelegationPrompt({ task: 't', acceptanceCriteria: [], plan: [], swarmLimits: { maxAgents: 20, concurrency: 20 } });
 
-  it('asks workers for a few precise queries and direct page reads', () => {
+  it('asks workers for a few precise queries and no guessed URLs', () => {
     expect(prompt).toContain('one web_search call with 2 to 4 precise queries');
-    expect(prompt).toContain('read that page directly with read_page instead of searching for it');
+    expect(prompt).toContain("never guess deeper URLs from memory");
+    expect(prompt).toContain('Do not put URLs from memory into prompt_template');
   });
 
   it('keeps find-N-items tasks to one main round plus at most one follow-up', () => {

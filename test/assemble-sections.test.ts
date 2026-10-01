@@ -25,6 +25,12 @@ describe('splitSection', () => {
     expect(rows).toEqual(['| C | 3 |']);
     expect(body).toBe('### C\n- detail');
   });
+
+  it('accepts rows written without the outer pipes', () => {
+    const { rows, body } = splitSection('Pinecone | 2 GB free | $20/mo | 20,000\n\n## Pinecone\nA | b | c stays in the body\n');
+    expect(rows).toEqual(['| Pinecone | 2 GB free | $20/mo | 20,000 |']);
+    expect(body).toBe('## Pinecone\nA | b | c stays in the body');
+  });
 });
 
 describe('assembleSections', () => {

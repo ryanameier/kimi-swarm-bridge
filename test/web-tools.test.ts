@@ -62,6 +62,12 @@ describe('read_page', () => {
     expect(page.text).toBe(longText);
   });
 
+  it('tells the worker to search instead of guessing when a page does not exist', async () => {
+    const fetchMock = vi.fn(async () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/html' } }));
+    await expect(getPageText('https://redis.io/cloud-pricing', {}, fetchMock as unknown as typeof fetch))
+      .rejects.toThrow(/HTTP 404 fetching https:\/\/redis.io\/cloud-pricing\. This page does not exist\. Do not guess other URLs on this site: use web_search/);
+  });
+
   it('returns truncated raw text without a question, and page text when the reader fails', async () => {
     const big = `<html><body><main>${'x'.repeat(30_000)}</main></body></html>`;
     const fetchMock = vi.fn(async (url: string) =>
